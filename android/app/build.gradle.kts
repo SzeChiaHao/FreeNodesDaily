@@ -1,4 +1,4 @@
-﻿import java.util.Properties
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -41,7 +41,13 @@ android {
         release {
             isMinifyEnabled = false
             isShrinkResources = false
-            if (hasReleaseKeystore) signingConfig = signingConfigs.getByName("release")
+            // 没配 release keystore 时退回 debug 签名：否则 assembleRelease 产出的是
+            // app-release-unsigned.apk，装不上（README 之前就是这么写的，但代码没做）
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
         debug {
             if (hasReleaseKeystore) signingConfig = signingConfigs.getByName("release")

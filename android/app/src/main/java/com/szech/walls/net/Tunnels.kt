@@ -471,7 +471,15 @@ object TunnelFactory {
     /** 本机技术上能实测的协议 */
     val MEASURABLE_TYPES = setOf("ss", "trojan", "vless")
 
-    fun measurable(n: Node): Boolean = MEASURABLE_TYPES.contains(n.type)
+    fun measurable(n: Node): Boolean = when {
+        !MEASURABLE_TYPES.contains(n.type) -> false
+        // reality / vision 在 create() 里本来就返回 null（要伪造 TLS 指纹 /
+        // 改 TLS 记录层），旧实现却仍把 type 当作「可实测」，
+        // 结果它们永远以「实测未通」的身份被回填进订阅。
+        n.type == "vless" && n.map.containsKey("reality-opts") -> false
+        n.type == "vless" && n.flow.contains("vision") -> false
+        else -> true
+    }
 }
 
 /** Node 上几个和传输有关的取值，统一放这里，避免各处各写一遍。 */

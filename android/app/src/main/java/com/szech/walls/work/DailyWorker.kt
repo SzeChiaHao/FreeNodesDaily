@@ -14,6 +14,18 @@ class DailyWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
     override suspend fun doWork(): Result {
         Prefs.init(applicationContext)
         Repo.init(applicationContext)
+        // WorkManager 的周期任务在首次入队时可能立刻跑一次；如果用户刚手动点过
+        // 「开始更新」，这里再跑一遍会白烧 4~5 分钟流量和电量（实测踩到过：
+        // 手动跑完 2 分钟后后台任务又完整跑了一遍）。
+        val last = Repo.status.lastRunAt
+        if (last > 0 && System.currentTimeMillis() - last < 60 * 60 * 1000L) {
+            Log.add("（后台任务）距上次更新不足 1 小时，跳过")
+            return Result.success()
+        }
+        if (Repo.status.running) {
+            Log.add("（后台任务）已有任务在运行，跳过")
+            return Result.success()
+        }
         Log.add("（后台任务）开始每日更新")
         return try {
             val res = Runner.runNow()

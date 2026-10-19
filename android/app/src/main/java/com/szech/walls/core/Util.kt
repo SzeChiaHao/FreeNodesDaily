@@ -164,3 +164,16 @@ object Log {
         lines.clear()
     }
 }
+
+/**
+ * 节点名前的速度前缀。
+ *
+ * 0.1MB/s 以上保留一位小数；更慢的保留两位 —— 否则 0.04MB/s 会被格式化成
+ * "0.0MB/s"，看起来和「根本没测通」一模一样（实测时踩到过）。
+ */
+fun speedLabel(mbps: Double): String =
+    if (mbps >= 0.1) {
+        String.format(java.util.Locale.ROOT, "%.1fMB/s", mbps)
+    } else {
+        String.format(java.util.Locale.ROOT, "%.2fMB/s", mbps)
+    }

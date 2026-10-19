@@ -1,6 +1,7 @@
 package com.szech.walls.pipeline
 
 import com.szech.walls.core.Log
+import com.szech.walls.core.speedLabel
 import com.szech.walls.model.Node
 import com.szech.walls.net.Fetcher
 import com.szech.walls.net.TunnelFactory
@@ -314,21 +315,32 @@ object Pipeline {
         val qualified = withSpeed.filter { it.speed >= cfg.minSpeedMbps }
         val pick = if (qualified.isNotEmpty()) qualified else withSpeed
 
-        val result = ArrayList<Node>()
-        for (n in pick) result.add(n)
+        val result = ArrayList<Node>(pick)
 
-        // 慢一点但延迟低、没测出速度的节点排后面补齐
-        val rest = list.filter { it.speed <= 0 }
+        // 旧实现把 speed<=0 的节点（含「实测未通」）回填到 keepTop：
+        // 用户拿到的订阅尾部，是 App 自己刚证明连不上的节点。
+        // 现在只回填「本机测不了」的协议（比如关掉 measurableOnly 时的 vmess），
+        // 真正测过且失败的节点不再混进名单。
+        val unmeasurable = list.filter { it.speed <= 0 && !TunnelFactory.measurable(it) }
             .sortedBy { if (it.realDelay > 0) it.realDelay else it.delay }
-        for (n in rest) {
+        for (n in unmeasurable) {
             if (result.size >= cfg.keepTop) break
             result.add(n)
+        }
+
+        // 一个可测节点都没测通时，才退回纯 TCP 延迟排序，避免直接空订阅
+        if (result.isEmpty()) {
+            val fallback = list.sortedBy { if (it.realDelay > 0) it.realDelay else it.delay }
+            for (n in fallback) {
+                if (result.size >= cfg.keepTop) break
+                result.add(n)
+            }
         }
 
         val out = ArrayList<Node>()
         for (n in result.take(cfg.keepTop)) {
             val node = if (cfg.labelSpeed && n.speed > 0 && !n.name.contains("MB/s")) {
-                n.withName(String.format("%.1fMB/s ", n.speed) + n.name)
+                n.withName(speedLabel(n.speed) + " " + n.name)
             } else {
                 n
             }

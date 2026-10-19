@@ -1,7 +1,18 @@
-# NoMoreWalls 免费节点 · 一体化自动管家
+# 免费节点 · 一体化自动管家（tools/）
 
-本目录是你（szech）这台电脑上"免费节点"任务的全套工具。相比旧方案（抓取、测速分开、手动跑），
-现在是一条**全自动流水线**：抓取 → 测速 → 按速度排序 → 过滤垃圾节点 → 导出多客户端订阅 → 同步进 Clash Verge。
+`tools/` 是抓取 + 测速 + 导出的全部逻辑：抓取 → 测速 → 按速度排序 → 过滤垃圾节点 →
+导出多客户端订阅 →（可选）同步进 Clash Verge。
+
+三种跑法：
+
+| 场景 | 入口 | 说明 |
+|---|---|---|
+| **推荐：每天自动出订阅** | `.github/workflows/daily-nodes.yml` | GitHub Actions 跑完把结果推到 `data` 分支，订阅地址固定 |
+| 本机 Windows（含同步客户端） | `daily_auto.ps1` / `setup_auto.ps1` | 输出到 `tools/output/`，可装计划任务 |
+| Linux / macOS / CI | `python daily_auto.py --skip-sync` | 不依赖盘符，mihomo 可用 `--mihomo` / `MIHOMO_BIN` 指定 |
+
+脚本默认把输出写到 `tools/output/`、状态写到 `tools/state/`，都可以用 `--out`、
+`--state-file`、`FND_OUT`、`FND_STATE_DIR` 覆盖；不再写死 `D:\Walls`。
 
 ## 一、核心脚本（新）
 
@@ -14,11 +25,12 @@
 旧脚本（`fetch_nodes.py`、`node_quality.py`、`update_nomorewalls.ps1` 等）仍保留，
 `daily_auto.py` 复用了它们的"节点解析"和"mihomo 测速框架"，但旧脚本不再作为主入口。
 
-## 二、自动任务（已装好）
+## 二、自动任务（可选，仅本机 Windows）
 
 | 触发 | 方式 | 说明 |
 |---|---|---|
-| 每日 08:00 | 计划任务 `AutoFreeNodes Daily` | 每天定时跑完整流程 |
+| 每日 07:00 | GitHub Actions `daily-nodes` | 推荐；结果推到 `data` 分支，对外提供固定订阅地址 |
+| 每日 08:00 | 计划任务 `AutoFreeNodes Daily` | 本机跑完整流程（需 `setup_auto.ps1` 安装） |
 | 开机登录 | 启动文件夹 `AutoFreeNodes.vbs` | 登录后静默跑一次（无窗口） |
 
 两次完整运行之间内置 **6 小时 guard**：即便每日任务和开机自启撞上，也不会重复跑。

@@ -5,7 +5,8 @@
 
 $ErrorActionPreference = 'Stop'
 
-$Ps1 = 'D:\Walls\tools\daily_auto.ps1'
+# 脚本随仓库走：从什么目录 clone 下来都能用，不再假设 D:\Walls
+$Ps1 = Join-Path $PSScriptRoot 'daily_auto.ps1'
 if (-not (Test-Path $Ps1)) {
     Write-Host "Script not found: $Ps1" -ForegroundColor Red
     exit 2
@@ -13,14 +14,14 @@ if (-not (Test-Path $Ps1)) {
 
 # ---- 1) Daily 08:00 task ----
 $TaskName = 'AutoFreeNodes Daily'
-$cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File D:\Walls\tools\daily_auto.ps1'
+$cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $Ps1 + '"'
 schtasks /create /tn $TaskName /tr $cmd /sc daily /st '08:00' /f | Out-Null
 Write-Host "Daily task created: $TaskName (08:00)" -ForegroundColor Green
 
 # ---- 2) Logon auto-start via Startup folder (silent, no window) ----
 $startup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
 $vbs = Join-Path $startup 'AutoFreeNodes.vbs'
-$vbsContent = 'CreateObject("Wscript.Shell").Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""D:\Walls\tools\daily_auto.ps1""", 0, False'
+$vbsContent = 'CreateObject("Wscript.Shell").Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""' + $Ps1 + '""", 0, False'
 Set-Content -Path $vbs -Value $vbsContent -Encoding ASCII
 Write-Host "Logon auto-start created: $vbs" -ForegroundColor Green
 

@@ -8,7 +8,7 @@
 
 用法:
   python fetch_nodes.py
-  python fetch_nodes.py --max-nodes 1000 --out D:\\Walls\\tools\\output
+  python fetch_nodes.py --max-nodes 1000 --out ./output
 
 输出:
   my_nodes.yml      -- 可直接导入 Clash Verge 的订阅(Clash Meta 格式)
@@ -49,14 +49,13 @@ SOURCES = [
     "https://raw.githubusercontent.com/zhangkaiitugithub/passcro/main/speednodes.yaml",
     "https://raw.githubusercontent.com/shaoyouvip/free/refs/heads/main/all.yaml",
     "https://raw.githubusercontent.com/anaer/Sub/main/clash.yaml",
-    "https://raw.githubusercontent.com/learnhard-cn/free_proxy_ss/main/clash/clash.provider.yaml",
     # --- Base64 / 通用列表源 ---
     "https://raw.githubusercontent.com/Surfboardv2ray/TGParse/main/python/hy2",
     "https://raw.githubusercontent.com/Surfboardv2ray/TGParse/main/python/hysteria2",
     "https://raw.githubusercontent.com/freefq/free/master/v2",
-    "https://raw.githubusercontent.com/aiboboxx/v2rayfree/main/v2",
+    "https://raw.githubusercontent.com/aiboboxx/v2rayfree/main/sub",
     "https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub",
-    "https://raw.githubusercontent.com/mfuu/v2ray/master/v2ray",
+    "https://raw.githubusercontent.com/mfuu/FreeProxies/master/sub",
     # --- Shadowsocks 大户（这两个是「只给 Clash/v2rayN 测速」变成
     #     「也能给纯 Shadowsocks 客户端出订阅」的关键，没它们池子里基本没有 ss）---
     "https://raw.githubusercontent.com/mahdibland/ShadowsocksAggregator/master/sub/sub_merge.txt",
@@ -65,8 +64,6 @@ SOURCES = [
     "https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.txt",
     "https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/v2ray.txt",
     "https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/clash.yml",
-    # --- 订阅列表页(自动展开其中链接) ---
-    "https://raw.githubusercontent.com/abshare/abshare.github.io/main/README.md#type=list",
 ]
 # ===========================================
 
@@ -451,24 +448,28 @@ def expand_list_page(text, fetch):
 
 
 def load_proxy_setting():
+    tools_dir = os.path.dirname(os.path.abspath(__file__))
     for path in (
+        os.environ.get("FND_PROXY_CONF") or "",
+        os.path.join(tools_dir, "local_proxy.conf"),
         r"D:\Walls\NoMoreWalls\local_proxy.conf",
-        r"D:\Walls\tools\local_proxy.conf",
     ):
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    v = f.read().strip()
-                return None if v in ("", "NONE") else v
-            except OSError:
-                return None
+        if not path or not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                v = f.read().strip()
+            return None if v in ("", "NONE") else v
+        except OSError:
+            return None
     return None
 
 
 def main():
     ap = argparse.ArgumentParser(description="独立免费节点抓取器")
     ap.add_argument("--max-nodes", type=int, default=1000)
-    ap.add_argument("--out", default=r"D:\Walls\tools\output")
+    ap.add_argument("--out",
+                    default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "output"))
     ap.add_argument("--timeout", type=int, default=20)
     ap.add_argument("--sources-file", default=None, help="可选: 每行一个订阅链接的文本文件")
     args = ap.parse_args()

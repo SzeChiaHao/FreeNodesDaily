@@ -5,20 +5,26 @@ param(
 
 # Wrapper for daily_auto.py: runs it and captures UTF-8 logs.
 
-$Tools = 'D:\Walls\tools'
+$Tools = $PSScriptRoot
 $LogDir = Join-Path $Tools 'logs'
 New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $log = Join-Path $LogDir "daily-$stamp.log"
 
-$py = 'C:\Users\szech\AppData\Local\Python\bin\python.exe'
-if (-not (Test-Path $py)) {
-    Write-Host "Python not found: $py"
+# 不再写死某个人的 python.exe：优先 PATH 里的 python，其次 py 启动器
+$py = (Get-Command python -ErrorAction SilentlyContinue).Source
+$pyArgs = @()
+if (-not $py) {
+    $py = (Get-Command py -ErrorAction SilentlyContinue).Source
+    if ($py) { $pyArgs += '-3' }
+}
+if (-not $py) {
+    Write-Host "Python not found: 请安装 Python 并加入 PATH"
     exit 2
 }
 
 $env:PYTHONIOENCODING = 'utf-8'
-$pyArgs = @('-u', (Join-Path $Tools 'daily_auto.py'))
+$pyArgs += @('-u', (Join-Path $Tools 'daily_auto.py'))
 if ($Force) { $pyArgs += '--force' }
 if ($Quick) { $pyArgs += '--quick' }
 

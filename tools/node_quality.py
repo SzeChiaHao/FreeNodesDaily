@@ -17,7 +17,7 @@ NoMoreWalls 节点质量筛选器
   report.md        -- 人类可读的总结报告
 
 用法示例:
-  python node_quality.py --source D:\\Walls\\NoMoreWalls\\list.meta.yml --top 12
+  python node_quality.py --source ../NoMoreWalls/list.meta.yml --top 12
   python node_quality.py --quick          # 只测连通性,不做速度/视频测试(快速迭代用)
 """
 
@@ -316,9 +316,12 @@ def score_node(delay, speed_mbs, yt_mbs, ph_mbs, ok_all):
 
 def main():
     ap = argparse.ArgumentParser(description="NoMoreWalls 节点质量筛选器")
-    ap.add_argument("--source", default=r"D:\Walls\NoMoreWalls\list.meta.yml")
-    ap.add_argument("--mihomo", default=r"D:\Clash Verge\verge-mihomo.exe")
-    ap.add_argument("--out", default=r"D:\Walls\tools\output")
+    _here = os.path.dirname(os.path.abspath(__file__))
+    ap.add_argument("--source",
+                    default=os.path.join(_here, "..", "NoMoreWalls", "list.meta.yml"))
+    ap.add_argument("--mihomo",
+                    default=os.environ.get("MIHOMO_BIN") or r"D:\Clash Verge\verge-mihomo.exe")
+    ap.add_argument("--out", default=os.path.join(_here, "output"))
     ap.add_argument("--top", type=int, default=12)
     ap.add_argument("--max-nodes", type=int, default=300)
     ap.add_argument("--min-speed", type=float, default=1.0, help="合格最低速度 MB/s")

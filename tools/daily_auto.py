@@ -23,8 +23,10 @@
 """
 
 import argparse
+import concurrent.futures
 import json
 import os
+import random
 import re
 import secrets
 import shutil
@@ -61,17 +63,40 @@ EXTRA_SOURCES = [
 SEED_PAGES = [
     "https://raw.githubusercontent.com/ermaozi/get_subscribe/main/README.md",
 ]
-# 动态源状态文件
-DISCOVERED_FILE = r"D:\Walls\tools\state\discovered_sources.txt"
-HEALTH_FILE = r"D:\Walls\tools\state\source_health.json"
+# 动态源状态文件（默认放在脚本目录下，换机器 / CI 都能直接跑）
+TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+STATE_DIR = os.environ.get("FND_STATE_DIR") or os.path.join(TOOLS_DIR, "state")
+DISCOVERED_FILE = os.path.join(STATE_DIR, "discovered_sources.txt")
+HEALTH_FILE = os.path.join(STATE_DIR, "source_health.json")
 DEAD_SOURCE_THRESHOLD = 5  # 连续失败 N 次就淘汰一个动态源
 DISCOVER_MAX_CANDIDATES = 20  # 每次最多验证多少个候选链接
 
-DEFAULT_MIHOMO = r"D:\Clash Verge\verge-mihomo.exe"
-DEFAULT_OUT = r"D:\Walls\tools\output"
-DEFAULT_STATE = r"D:\Walls\tools\state\last_run.txt"
+DEFAULT_OUT = os.environ.get("FND_OUT") or os.path.join(TOOLS_DIR, "output")
+DEFAULT_STATE = os.path.join(STATE_DIR, "last_run.txt")
 VERGE_PROFILE_UID = "AutoBestNodes"
 VERGE_PROFILE_NAME = "auto_best_nodes.yml"
+
+# mihomo 内核候选位置：--mihomo / MIHOMO_BIN > PATH > 脚本目录 > Clash Verge 安装目录
+MIHOMO_CANDIDATES = [
+    os.path.join(TOOLS_DIR, "mihomo"),
+    os.path.join(TOOLS_DIR, "mihomo.exe"),
+    r"D:\Clash Verge\verge-mihomo.exe",
+    r"C:\Program Files\Clash Verge\verge-mihomo.exe",
+]
+
+
+def find_mihomo():
+    """返回可用的 mihomo 内核路径；找不到返回 None。"""
+    env = os.environ.get("MIHOMO_BIN")
+    if env and os.path.exists(env):
+        return env
+    found = shutil.which("mihomo")
+    if found:
+        return found
+    for p in MIHOMO_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    return None
 
 
 def mirrors(url):
@@ -82,8 +107,15 @@ def mirrors(url):
     )
     if m:
         user, repo, branch, path = m.groups()
-        out.append(f"https://cdn.jsdelivr.net/gh/{user}/{repo}@{branch}/{path}")
-        out.append(f"https://gh-proxy.com/{url}")
+        out.extend([
+            f"https://fastly.jsdelivr.net/gh/{user}/{repo}@{branch}/{path}",
+            f"https://cdn.jsdelivr.net/gh/{user}/{repo}@{branch}/{path}",
+            f"https://gh-proxy.com/{url}",
+            f"https://ghfast.top/{url}",
+        ])
+    if os.environ.get("FND_MIRROR_FIRST") == "1":
+        # 国内网络下直连 raw 往往先超时 20s，可把镜像放前面
+        out = out[1:] + [url]
     return out
 
 
@@ -152,7 +184,12 @@ def _port_open(port):
 
 def _get_local_proxy():
     """读 local_proxy.conf，若代理端口确实在监听则返回地址，否则 None。"""
-    for path in (r"D:\Walls\NoMoreWalls\local_proxy.conf", r"D:\Walls\tools\local_proxy.conf"):
+    candidates = [
+        os.environ.get("FND_PROXY_CONF") or "",
+        os.path.join(TOOLS_DIR, "local_proxy.conf"),
+        r"D:\Walls\NoMoreWalls\local_proxy.conf",
+    ]
+    for path in [p for p in candidates if p]:
         if not os.path.exists(path):
             continue
         try:
@@ -284,7 +321,7 @@ def _clean_proxy_fields(p):
     return out
 
 
-def fetch_all(max_nodes, timeout, min_per_type=DEFAULT_MIN_PER_TYPE):
+def fetch_all(max_nodes, timeout, min_per_type=DEFAULT_MIN_PER_TYPE, sample_seed=None):
     """抓取全部来源（含动态发现的源）并解析合并，返回 (proxies, ok_urls, fail_urls)。"""
     session = requests.Session()
     session.trust_env = False  # 不走系统代理/环境变量代理，避免被坏代理卡死
@@ -344,6 +381,12 @@ def fetch_all(max_nodes, timeout, min_per_type=DEFAULT_MIN_PER_TYPE):
         # 每个源单独留一组，后面轮转挑选用
         groups.append(list(proxies) + [FN.uri_to_proxy(u) for u in uris])
         print(f"[{i:02d}] {len(uris) + len(proxies):>5d}  {url}")
+
+    # 打散每个源内部的顺序：免费源的文件头部往往是最老、最已失效的节点，
+    # 只从头部按序取会让新鲜节点永远进不了测速池（旧实现每源只取前 ~33 条）。
+    rng = random.Random(sample_seed)
+    for g in groups:
+        rng.shuffle(g)
 
     # 去重 + 过滤内网/假节点 + 轮转挑选
     #
@@ -474,7 +517,9 @@ def batch_delay(runner, group, url, timeout_ms):
         r = runner.api(
             "GET",
             f"/group/{group}/delay?url={q}&timeout={timeout_ms}",
-            timeout=max(30, timeout_ms * len(str(group)) // 1000 + 60),
+            # 批量接口是所有节点并发测，耗时 ≈ 单节点超时，与节点数无关。
+            # 旧写法 len(str(group)) 恒为 4（group 是 "TEST"），600 个节点也只给 72s。
+            timeout=max(60, timeout_ms // 1000 + 90),
         )
         if r.status_code == 200:
             data = r.json()
@@ -489,14 +534,48 @@ def batch_delay(runner, group, url, timeout_ms):
     return {}
 
 
-def fallback_delay(runner, names, timeout_ms, limit=200):
-    """兜底：逐个测延迟（当批量 API 异常时使用），只测前 limit 个。"""
+def fallback_delay(runner, names, timeout_ms, limit=None, workers=16):
+    """兜底：逐个测延迟（当批量 API 异常时使用）。
+
+    旧实现只测前 200 个：池子越大盲区越大，后 400 个节点每轮都没被验证过。
+    现在默认测全量，并用线程池并发，避免串行拖成几十分钟。
+    """
+    todo = names if limit is None else names[:limit]
     out = {}
-    for name in names[:limit]:
-        d = runner.delay(name, timeout_ms)
-        if d:
-            out[name] = d
+    done = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(runner.delay, n, timeout_ms): n for n in todo}
+        for fut in concurrent.futures.as_completed(futs):
+            name = futs[fut]
+            try:
+                d = fut.result()
+            except Exception:  # noqa: BLE001
+                d = None
+            if d:
+                out[name] = d
+            done += 1
+            if done % 100 == 0:
+                print(f"  回退延迟测试 {done}/{len(todo)} ...")
     return out
+
+
+def _select_and_wait(runner, name, timeout=4.0):
+    """切换 selector 并确认 mihomo 真的切过去了。
+
+    旧实现 select() 后只 sleep 0.3s 就测速，mihomo 的切换是异步的，
+    测到的吞吐可能来自上一个节点，导致排名与节点脱钩。
+    """
+    runner.select(name)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            r = runner.api("GET", "/proxies/TEST")
+            if r.status_code == 200 and (r.json() or {}).get("now") == name:
+                return True
+        except Exception:  # noqa: BLE001  网络/JSON 抖动都不该让整轮失败
+            pass
+        time.sleep(0.1)
+    return False
 
 
 def speedtest(pool, args):
@@ -564,9 +643,15 @@ def speedtest(pool, args):
             cand = cand[: args.speed_top]
             print(f"开始对 {len(cand)} 个节点测下载速度 ...")
             for i, (name, d) in enumerate(cand, 1):
-                runner.select(name)
-                time.sleep(0.3)
+                if not _select_and_wait(runner, name):
+                    print(f"  切换到 {name} 超时，跳过测速")
+                    results.append({"name": name, "delay": d, "speed": None})
+                    continue
                 sp = NQ.measure_speed(session, CF_SPEED, 3 * 1024 * 1024, 12)
+                if sp is None:
+                    # 偶发握手失败重试一次，避免把抖动误判成死节点
+                    _select_and_wait(runner, name, timeout=2.0)
+                    sp = NQ.measure_speed(session, CF_SPEED, 3 * 1024 * 1024, 12)
                 results.append({"name": name, "delay": d, "speed": sp})
                 if i % 10 == 0:
                     ok = sum(1 for r in results if r["speed"] and r["speed"] >= args.min_speed)
@@ -637,10 +722,54 @@ def should_run(state_file, min_hours):
     return True
 
 
+def speed_label(speed):
+    """节点名前的速度前缀：>=0.1 保留一位，更慢的保留两位。
+
+    否则 0.04MB/s 会被写成 "0.0MB/s"，看起来和「根本没测通」一样。
+    """
+    return f"{speed:.1f}MB/s" if speed >= 0.1 else f"{speed:.2f}MB/s"
+
+
+def choose_final(results, args):
+    """挑选最终名单。
+
+    返回 (final, tested_all, qualified_count)。完全测不出速度时 final 为 None，
+    调用方应保留旧订阅，而不是把死节点写进新订阅。
+    """
+    if args.quick:
+        ordered = sorted(results, key=lambda r: r["delay"])
+        tested_all = list(ordered)
+        final = ordered[: args.top]
+        return final, tested_all, len(final)
+
+    # 只认「真正测出下载速度」的节点：None（没测 / 测不通）和 0.0（连上也传不动）
+    # 一律不进名单。旧实现用 with_speed 兜底，于是最差的一天会把 40 个死节点
+    # 标成 "0.0MB/s" 写进主订阅。
+    with_speed = [r for r in results if (r.get("speed") or 0) > 0]
+    with_speed.sort(key=lambda r: (-r["speed"], r["delay"]))
+    qualified = [r for r in with_speed if r["speed"] >= args.min_speed]
+    if qualified:
+        final = qualified
+    elif with_speed:
+        # 一个都不达标：宁可用「实测能跑但慢」的，也不用「根本没跑通」的
+        print(
+            f"警告：没有节点达到 {args.min_speed} MB/s，"
+            f"退而使用 {len(with_speed)} 个实测可用的慢节点"
+        )
+        final = with_speed
+    else:
+        return None, [], 0
+    return final[: args.top], list(with_speed), len(qualified)
+
+
 def main():
     ap = argparse.ArgumentParser(description="一体化免费节点管家")
     ap.add_argument("--out", default=DEFAULT_OUT)
-    ap.add_argument("--mihomo", default=DEFAULT_MIHOMO)
+    ap.add_argument(
+        "--mihomo",
+        default=os.environ.get("MIHOMO_BIN"),
+        help="mihomo 内核路径；默认自动查找 PATH / tools/ / Clash Verge 目录",
+    )
     ap.add_argument("--state-file", default=DEFAULT_STATE)
     ap.add_argument("--max-nodes", type=int, default=600, help="进入测速的候选节点上限")
     ap.add_argument("--max-delay", type=int, default=3000, help="延迟阈值 ms，超过视为死节点")
@@ -664,15 +793,20 @@ def main():
         help="排除某些协议，逗号分隔，例如 http,socks5（这类节点转不成分享链接，会挤掉别人）",
     )
     ap.add_argument("--timeout", type=int, default=20, help="抓取单源超时秒")
+    ap.add_argument("--sample-seed", type=int, default=None,
+                    help="各源内部打散取样的随机种子（默认每轮随机）")
     ap.add_argument("--min-interval-hours", type=float, default=6.0, help="两次完整运行的最小间隔小时")
     ap.add_argument("--quick", action="store_true", help="只测延迟不测下载速度")
     ap.add_argument("--force", action="store_true", help="忽略 guard 强制运行")
     ap.add_argument("--skip-sync", action="store_true", help="不写 Clash Verge")
+    ap.add_argument("--no-discover", action="store_true",
+                    help="跳过聚合页自动发现新源（只用静态源，CI / 调试更快）")
     ap.add_argument("--no-label", action="store_true", help="不给节点名加实测速度前缀")
     args = ap.parse_args()
 
-    if not os.path.exists(args.mihomo):
-        print(f"找不到 mihomo 内核: {args.mihomo}")
+    args.mihomo = args.mihomo or find_mihomo()
+    if not args.mihomo or not os.path.exists(args.mihomo):
+        print("找不到 mihomo 内核：用 --mihomo 指定，或设置 MIHOMO_BIN 环境变量")
         return 2
 
     if not args.force and not should_run(args.state_file, args.min_interval_hours):
@@ -683,7 +817,8 @@ def main():
         return 0
 
     os.makedirs(args.out, exist_ok=True)
-    os.makedirs(os.path.dirname(args.state_file), exist_ok=True)
+    state_dir = os.path.dirname(os.path.abspath(args.state_file))
+    os.makedirs(state_dir, exist_ok=True)
 
     # 标记正在运行（should_run 里的 3 小时锁据此拦截并发实例）
     try:
@@ -693,7 +828,11 @@ def main():
         pass
 
     # ===== 阶段 0：从聚合页发现新订阅源 =====
-    new_sources = discover_new_sources(args.timeout)
+    if args.no_discover:
+        print("跳过聚合页自动发现（--no-discover）")
+        new_sources = []
+    else:
+        new_sources = discover_new_sources(args.timeout)
     discovered = _load_discovered()
     for u in new_sources:
         if u not in discovered:
@@ -704,7 +843,9 @@ def main():
 
     # ===== 阶段 1：抓取 =====
     print(f"== 阶段 1/3：抓取节点（{datetime.now():%Y-%m-%d %H:%M:%S}）==")
-    pool, ok_urls, fail_urls = fetch_all(args.max_nodes, args.timeout, args.min_per_type)
+    pool, ok_urls, fail_urls = fetch_all(
+        args.max_nodes, args.timeout, args.min_per_type, args.sample_seed
+    )
     if not pool:
         print("抓取得到 0 节点，保留旧订阅，退出")
         return 1
@@ -734,21 +875,10 @@ def main():
 
     # ===== 阶段 3：排序 + 输出 + 同步 =====
     print("== 阶段 3/3：排序 + 输出 ==")
-    if args.quick:
-        results.sort(key=lambda r: r["delay"])
-        tested_all = list(results)  # 截断前的全部存活节点，导出其它格式时按协议补用
-        results = results[: args.top]
-        qualified_count = len(results)
-    else:
-        # 有真实测速数据的按下载速度降序、延迟升序；测速失败的剔除
-        with_speed = [r for r in results if r["speed"] is not None]
-        with_speed.sort(key=lambda r: (-r["speed"], r["delay"]))
-        qualified = [r for r in with_speed if r["speed"] >= args.min_speed]
-        qualified_count = len(qualified)
-        # 优先只保留达标的；一个都不达标时才用相对最好的一批兜底（避免空订阅）
-        results = qualified if qualified else with_speed
-        tested_all = list(results)
-        results = results[: args.top]
+    results, tested_all, qualified_count = choose_final(results, args)
+    if results is None:
+        print("没有任何节点测出下载速度：本轮不生成订阅（保留旧文件）")
+        return 3
 
     by_name = {p["name"]: p for p in pool}
     # 速度/延迟按名字查（用截断前的 tested_all，配额补进来的节点也要能查到）
@@ -802,7 +932,7 @@ def main():
         p = dict(p)
         sp = speed_map.get(p["name"])
         if not args.no_label and not args.quick and sp is not None:
-            p["name"] = f"{sp:.1f}MB/s {p['name']}"
+            p["name"] = f"{speed_label(sp)} {p['name']}"
         final_proxies.append(p)
 
     gnames = [p["name"] for p in final_proxies]
@@ -839,7 +969,7 @@ def main():
             q = dict(p)
             sp = r.get('speed')
             if not args.no_label and not args.quick and sp is not None:
-                q['name'] = f"{sp:.1f}MB/s {q['name']}"
+                q['name'] = f"{speed_label(sp)} {q['name']}"
             labeled_pool.append(q)
         EF.write_all(args.out, final_proxies, pool=labeled_pool)
     except Exception as e:  # noqa: BLE001
@@ -882,6 +1012,21 @@ def main():
 
     with open(args.state_file, "w", encoding="utf-8") as f:
         f.write(str(time.time()))
+
+    # 机器可读的运行摘要：给 CI / 监控 / 徽章用，也能在 report 之外快速判断本轮质量
+    summary = {
+        "generated_at": now,
+        "quick": bool(args.quick),
+        "fetched": len(pool),
+        "alive": alive_count,
+        "qualified": qualified_count,
+        "kept": len(ordered),
+        "sources_ok": len(ok_urls),
+        "sources_fail": len(fail_urls),
+        "min_speed_mbps": args.min_speed,
+    }
+    with open(os.path.join(args.out, "summary.json"), "w", encoding="utf-8") as f:
+        json.dump(summary, f, ensure_ascii=False, indent=2)
 
     print(f"测速池：{len(tested_all)} 个存活节点（入选前 {args.top} 个给 Clash，其余按协议补给其它客户端）")
 

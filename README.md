@@ -1,11 +1,33 @@
 # FreeNodesDaily · 免费节点抓取测速管家
 
-抓取公开免费节点 → 实测延迟与下载速度 → 排序过滤 → 导出**各种客户端**的订阅：
-Clash / Clash Verge / mihomo、sing-box、v2rayN / v2rayNG、Shadowrocket、Shadowsocks（sip008 / ss 链接）。
-同一套逻辑有两个前端：Windows 上的 Python 命令行流水线，以及 Android 手机上的「节点管家」App。
+> **我们做这件事，只为一个目的：让所有人都能自由访问完整的互联网。**
+
+墙不该存在，知识不该有国界。写这套工具不是为了炫技，也不是为了流量，
+只是希望有一天，它变得完全没有必要。
+
+在此之前，至少让手上这台设备能连上该连的地方：
+
+抓取公开免费节点 → 实测延迟与下载速度 → 排序过滤 → 写成各家客户端认得的配置文件。
+Clash / Clash Verge / mihomo、sing-box、v2rayN / v2rayNG、Shadowrocket、Shadowsocks。
+
+同一套逻辑有两个前端：
+
+- **Android**（`android/`）—— 手机 App「节点管家」，抓取、测速、生成配置文件全在手机上完成；
+- **Windows**（`tools/`）—— Python 命令行流水线，用 mihomo 内核测速，并同步进 Clash Verge。
 
 > 免费节点随时失效、质量参差，且有安全风险（可能记录流量）。请勿通过免费节点登录重要账号、
 > 访问明文网站或进行挖矿。本项目仅用于学习交流与访问合法内容。
+
+---
+
+## 命名约定
+
+| 对象 | 规则 | 例子 |
+|---|---|---|
+| Release tag | `v<主版本>.<次版本>` | `v2.0` |
+| Release 标题 | `节点管家 v<版本> · Android` | `节点管家 v2.0 · Android` |
+| 安装包 | `Walls-<版本>-vc<versionCode>-android.apk` | `Walls-2.0-vc11-android.apk` |
+| 生成的配置文件 | `<格式>-<yyyyMMdd-HHmm>.扩展名` | `clash-20261018-1425.yaml` |
 
 ---
 

@@ -123,7 +123,7 @@ if (-not $Release) {
 $Repo     = 'SzeChiaHao/FreeNodesDaily'
 $Tag      = "v$newName"
 $Vc       = $newCode
-$AssetName = "Walls-$newName-vc$Vc.apk"
+$AssetName = "Walls-$newName-vc$Vc-android.apk"
 
 if (-not $Token) { $Token = $env:GITHUB_TOKEN }
 if (-not $Token) {
@@ -153,7 +153,7 @@ try {
 
 $body = @{
     tag_name   = $Tag
-    name       = "v$newName"
+    name       = "节点管家 v$newName · Android"
     body       = if ($Notes) { $Notes } else { "节点管家 v$newName（versionCode $Vc）" }
     draft      = $false
     prerelease = $false

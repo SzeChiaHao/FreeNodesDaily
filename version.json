@@ -1,7 +1,7 @@
 {
     "versionName": "2.0",
     "versionCode": 11,
-    "apk": "https://github.com/SzeChiaHao/FreeNodesDaily/releases/download/v2.0/Walls-2.0-vc11.apk",
+    "apk": "https://github.com/SzeChiaHao/FreeNodesDaily/releases/download/v2.0/Walls-2.0-vc11-android.apk",
     "size": 5347918,
     "sha256": "204887a68c14049734fc3dda3e9ecbf5e61f2dbc6098a004964c0a175bc4928d",
     "notes": "改用文件交付：不再起本地订阅服务。节点写好配置文件放进「下载/Walls/」，文件名带时间戳，交给 Clash、v2rayNG 等客户端「从文件导入」即可。\n\n- 可按客户端单独生成，也可一次全部生成；默认生成后清理旧文件\n- 抓取跑完可以自动保存\n- 运行期间前台服务 + 唤醒锁，锁屏、切后台不再中断\n- 概览改成四段进度：抓取 / 延迟筛选 / 真实测速 / 生成文件，能看到当前在哪一步、还剩多久\n- 修复底栏点「概览」没反应、并排按钮文字折行、切页偶发空白\n- 首次启动会引导关闭电池优化；设置里可导出诊断日志",

@@ -129,17 +129,27 @@ object Updater {
     // ------------------------------------------------------------- 下载
 
     /** 下载 APK 到 cacheDir，返回文件；失败返回 null。 */
-    fun download(ctx: Context, release: Release, onProgress: (Long, Long) -> Unit): File? {
+    fun download(
+        ctx: Context,
+        release: Release,
+        onProgress: (Long, Long) -> Unit,
+        shouldStop: () -> Boolean = { false }
+    ): File? {
         val dir = File(ctx.cacheDir, "updates")
         val dest = File(dir, "Walls-${release.versionName}.apk")
-        return if (downloadTo(dest, release, onProgress)) dest else null
+        return if (downloadTo(dest, release, onProgress, shouldStop)) dest else null
     }
 
     /**
      * 依次尝试「直连 + 镜像」把安装包下到 dest，并核对 sha256。
      * 和 Android 无关，方便在 JVM 上直接验证整条下载链路。
      */
-    fun downloadTo(dest: File, release: Release, onProgress: (Long, Long) -> Unit): Boolean {
+    fun downloadTo(
+        dest: File,
+        release: Release,
+        onProgress: (Long, Long) -> Unit,
+        shouldStop: () -> Boolean = { false }
+    ): Boolean {
         dest.parentFile?.mkdirs()
         if (dest.exists() && release.sha256.isNotEmpty() && sha256(dest) == release.sha256) {
             return true // 上次已经下好了
@@ -151,7 +161,8 @@ object Updater {
         for (p in DOWNLOAD_PROXIES) candidates.add(p + release.apkUrl)
 
         for (url in candidates) {
-            if (tryDownload(url, dest, release.size, onProgress)) {
+            if (shouldStop()) return false
+            if (tryDownload(url, dest, release.size, onProgress, shouldStop)) {
                 if (release.sha256.isEmpty() || sha256(dest) == release.sha256) return true
                 Log.add("下载的安装包校验值不对，换下一个地址")
                 dest.delete()
@@ -164,7 +175,8 @@ object Updater {
         url: String,
         dest: File,
         total: Long,
-        onProgress: (Long, Long) -> Unit
+        onProgress: (Long, Long) -> Unit,
+        shouldStop: () -> Boolean = { false }
     ): Boolean {
         var conn: HttpURLConnection? = null
         return try {
@@ -183,6 +195,7 @@ object Updater {
                 FileOutputStream(dest).use { out ->
                     val buf = ByteArray(65536)
                     while (true) {
+                        if (shouldStop()) throw java.io.IOException("cancelled")
                         val n = inp.read(buf)
                         if (n <= 0) break
                         out.write(buf, 0, n)
@@ -213,7 +226,7 @@ object Updater {
                 md.update(buf, 0, n)
             }
         }
-        md.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+        md.digest().joinToString("") { String.format(java.util.Locale.ROOT, "%02x", it.toInt() and 0xFF) }
     } catch (e: Exception) {
         ""
     }

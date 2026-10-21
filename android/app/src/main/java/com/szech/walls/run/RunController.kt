@@ -46,37 +46,78 @@ object RunController {
     private var job: Job? = null
     private var ticker: Job? = null
 
+    // running / cancelling 会被别的线程读（UI 主线程读 running 画面、工作线程读 cancelling 判断是否停），
+    // 而 start()/stop() 里的赋值在 @Synchronized 里 —— 读的那边不在锁里，所以必须 @Volatile，
+    // 否则可能看不到最新值（最坏情况：点了停止，流水线仍然看到 false，一路跑到底）。
+    @Volatile
     var running: Boolean = false
         private set
+    @Volatile
     var cancelling: Boolean = false
         private set
 
+    // 下面这些进度字段都是「工作线程写、UI 主线程读」，写的那边在 @Synchronized 块里，
+    // 读的那边（percent / stageEtaMs 这两个 getter）不在锁里，所以也得 @Volatile。
+    // 否则界面可能推到旧的 stageDone，看起来像「卡住了」。
+
     /** 当前处在第几段（0..3），-1 表示没在跑 */
+    @Volatile
     var stageIndex: Int = -1
         private set
+    @Volatile
     var stageDone: Int = 0
         private set
+    @Volatile
     var stageTotal: Int = 0
         private set
 
     /** 细粒度的统计，界面上当「陪跑信息」用 */
+    @Volatile
     var sourceDone: Int = 0
         private set
+    @Volatile
     var sourceTotal: Int = 0
         private set
+    @Volatile
     var candidates: Int = 0
         private set
+    @Volatile
     var alive: Int = 0
         private set
+    @Volatile
     var measured: Int = 0
         private set
 
+    @Volatile
     var startedAt: Long = 0L
         private set
+    @Volatile
     private var stageStartedAt: Long = 0L
+    @Volatile
     private var stageStartDone: Int = 0
 
+    @Volatile
     var lastResult: PipelineResult? = null
+        private set
+
+    /**
+     * 上一次跑完之后留下的一份快照。
+     *
+     * 原来一跑完 stageIndex 就被打回 -1，四段进度立刻全部变回「等待」——
+     * 而这正是用户最想看统计的那一秒。现在把每段的 done/total 存一份，界面上把
+     * 它渲染成「上一次运行」的明细。
+     */
+    class PhaseSnapshot(val done: Int, val total: Int, val skipped: Boolean = false) {
+        override fun toString(): String = if (skipped) "跳过" else "$done/$total"
+    }
+
+    @Volatile
+    var lastPhases: List<PhaseSnapshot> = emptyList()
+        private set
+
+    /** 上一次运行的用时（毫秒），没跑过为 0 */
+    @Volatile
+    var lastRunElapsedMs: Long = 0L
         private set
 
     /** 老字段，留个别处还在读 */
@@ -246,6 +287,17 @@ object RunController {
                 running = false
                 job = null
                 lastResult = res
+                // 先把本轮的统计固化下来，再清当前状态，界面才不会看到「一片空白」
+                lastRunElapsedMs = System.currentTimeMillis() - startedAt
+                lastPhases = listOf(
+                    PhaseSnapshot(sourceDone, sourceTotal),
+                    PhaseSnapshot(candidates, candidates),
+                    // quick 模式根本不跑测速段，标成「跳过」比写 0/0 诚实
+                    if (Prefs.quick) PhaseSnapshot(0, 0, skipped = true)
+                    else PhaseSnapshot(alive, alive),
+                    if (Prefs.quick) PhaseSnapshot(0, 0, skipped = true)
+                    else PhaseSnapshot(measured, alive)
+                )
                 stageIndex = -1
                 stageDone = 0
                 stageTotal = 0

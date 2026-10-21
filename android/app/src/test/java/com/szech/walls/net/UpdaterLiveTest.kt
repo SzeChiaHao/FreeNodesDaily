@@ -51,11 +51,11 @@ class UpdaterLiveTest {
         // 4) 真下载一遍，核对 sha256 与文件头
         val dest = File(System.getProperty("java.io.tmpdir"), "walls-update-check.apk")
         dest.delete()
-        val ok = Updater.downloadTo(dest, rel) { done, total ->
+        val ok = Updater.downloadTo(dest, rel, onProgress = { done, total ->
             if (total > 0 && done / (512 * 1024) != (done - 1).coerceAtLeast(0) / (512 * 1024)) {
                 print("  ${done * 100 / total}%")
             }
-        }
+        })
         println()
         assertTrue("安装包下载失败", ok)
         assertTrue("下载下来的文件太小：${dest.length()}", dest.length() > 1_000_000)

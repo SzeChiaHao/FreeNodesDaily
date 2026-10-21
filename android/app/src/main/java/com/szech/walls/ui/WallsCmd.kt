@@ -110,8 +110,10 @@ object WallsCmd {
     )
 
     /** 一次生成共用一个时间戳，七个文件属于同一批，好认也好清 */
+    // Locale.ROOT：默认 Locale 下 SimpleDateFormat 会换历法（泰语区出佛历 2569）、
+    // 数字也可能变成非 ASCII，文件名就乱了。
     fun stamp(now: Long = System.currentTimeMillis()): String =
-        java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.getDefault()).format(java.util.Date(now))
+        java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.ROOT).format(java.util.Date(now))
 
     fun fileNameOf(fmt: ExportFormat, stamp: String): String = fmt.prefix + "-" + stamp + "." + fmt.ext
 
@@ -297,24 +299,6 @@ object WallsCmd {
         }
     }
 
-    fun share(ctx: Context, name: String, content: String, mime: String) {
-        try {
-            val f = Repo.fileOf("export/$name")
-            f.writeText(content)
-            val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", f)
-            val i = Intent(Intent.ACTION_SEND).apply {
-                type = mime
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            ctx.startActivity(Intent.createChooser(i, "分享订阅").apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            })
-        } catch (e: Exception) {
-            toast(ctx, "分享失败：${e.message}")
-        }
-    }
-
     // ------------------------------------------------------------ 自动更新
 
     fun checkUpdate(ctx: Context, owner: LifecycleOwner, manual: Boolean) {
@@ -331,7 +315,7 @@ object WallsCmd {
                 return@launch
             }
             Log.add("发现新版本 v${info.versionName}（当前 v$curName）")
-            val sizeText = if (info.size > 0) String.format("%.1f MB", info.size / 1048576.0) else "未知大小"
+            val sizeText = if (info.size > 0) String.format(java.util.Locale.ROOT, "%.1f MB", info.size / 1048576.0) else "未知大小"
             val ui = WallsUi(ctx)
             val box = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
@@ -371,29 +355,40 @@ object WallsCmd {
             addView(tip)
             addView(bar)
         }
+        // 「取消」得真的能取消：以前按钮只是把弹窗关掉，后台还在一路下完。
+        val stopped = java.util.concurrent.atomic.AtomicBoolean(false)
         val dlg = MaterialAlertDialogBuilder(ctx)
             .setTitle("下载更新")
             .setView(box)
             .setCancelable(false)
-            .setNegativeButton("取消", null)
+            .setNegativeButton("取消") { _, _ -> stopped.set(true) }
             .create()
         dlg.show()
 
         owner.lifecycleScope.launch {
             val file = withContext(Dispatchers.IO) {
-                Updater.download(ctx, info, onProgress = { done, total ->
-                    val pct = if (total > 0) (done * 100 / total).toInt() else 0
-                    bar.post {
-                        bar.setProgressCompat(pct, true)
-                        tip.text = if (total > 0) {
-                            "正在下载 v${info.versionName}… ${pct}%（${done / 1048576} / ${total / 1048576} MB）"
-                        } else {
-                            "正在下载 v${info.versionName}… ${done / 1048576} MB"
+                Updater.download(
+                    ctx, info,
+                    onProgress = { done, total ->
+                        val pct = if (total > 0) (done * 100 / total).toInt() else 0
+                        bar.post {
+                            bar.setProgressCompat(pct, true)
+                            tip.text = if (total > 0) {
+                                "正在下载 v${info.versionName}… ${pct}%（${done / 1048576} / ${total / 1048576} MB）"
+                            } else {
+                                "正在下载 v${info.versionName}… ${done / 1048576} MB"
+                            }
                         }
-                    }
-                })
+                    },
+                    shouldStop = { stopped.get() }
+                )
             }
             dlg.dismiss()
+            if (stopped.get()) {
+                Log.add("更新下载已取消")
+                toast(ctx, "已取消下载")
+                return@launch
+            }
             if (file == null) {
                 Log.add("下载更新失败")
                 toast(ctx, "下载失败，可稍后再试")
@@ -442,7 +437,7 @@ object WallsCmd {
             append(Log.snapshot().joinToString(nl))
         }
         val name = "diag-" + java.text.SimpleDateFormat(
-            "yyyyMMdd-HHmmss", java.util.Locale.getDefault()
+            "yyyyMMdd-HHmmss", java.util.Locale.ROOT
         ).format(java.util.Date()) + ".txt"
         val ok = writeToDownloads(ctx, name, text, "text/plain")
         toast(ctx, if (ok != null) "已导出 下载/Walls/$ok" else "导出失败")

@@ -49,7 +49,7 @@ class WallsApp : Application() {
                     append(nl).append(nl).append("---- 运行日志 ----").append(nl)
                     append(com.szech.walls.core.Log.snapshot().joinToString(nl))
                 }
-                val name = "crash-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.getDefault())
+                val name = "crash-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT)
                     .format(Date()) + ".txt"
                 com.szech.walls.ui.WallsCmd.writeToDownloads(this, name, text, "text/plain")
             } catch (e: Exception) {

@@ -130,37 +130,37 @@ object Log {
 
     private const val MAX_LINES = 400
     private val lines = ArrayDeque<String>()
-    private val listeners = mutableSetOf<(String) -> Unit>()
 
-    @Synchronized
+    // CopyOnWriteArrayList：日志是「很多线程写、偶尔加/删监听器」，
+    // 用普通 set 的话得在持锁状态下遍历回调——流水线每条日志都要过一次全局锁，全是串行点。
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(String) -> Unit>()
+
     fun add(msg: String) {
-        val line = msg
-        lines.addLast(line)
-        while (lines.size > MAX_LINES) lines.removeFirst()
-        for (l in listeners.toList()) {
+        synchronized(lines) {
+            lines.addLast(msg)
+            while (lines.size > MAX_LINES) lines.removeFirst()
+        }
+        // 回调放在锁外：单个监听器哪怕卡住，也不会把写日志的流水线一起堵死
+        for (l in listeners) {
             try {
-                l(line)
+                l(msg)
             } catch (e: Exception) {
                 // ignore
             }
         }
     }
 
-    @Synchronized
-    fun snapshot(): List<String> = lines.toList()
+    fun snapshot(): List<String> = synchronized(lines) { lines.toList() }
 
-    @Synchronized
     fun addListener(l: (String) -> Unit) {
         listeners.add(l)
     }
 
-    @Synchronized
     fun removeListener(l: (String) -> Unit) {
         listeners.remove(l)
     }
 
-    @Synchronized
     fun clear() {
-        lines.clear()
+        synchronized(lines) { lines.clear() }
     }
 }

@@ -16,7 +16,7 @@ import java.util.Locale
 /**
  * 备份与恢复。
  *
- * 备份的内容：11 项设置 + 订阅源清单 + 自动发现的源 + 当前节点池（含测速结果）与状态。
+ * 备份的内容：全部设置 + 订阅源清单 + 自动发现的源 + 当前节点池（含测速结果）与状态。
  * 存成一个 JSON 写进「下载/Walls/」，恢复时从文件读回来。
  */
 object Backup {
@@ -24,8 +24,14 @@ object Backup {
     private const val KIND = "walls-backup"
     private const val VERSION = 1
 
+    /**
+     * 备份里包含多少项设置。界面上直接引用它，别各处各写一个数字。
+     * 增删设置时改这里，另外两处提示会跟着变。
+     */
+    const val SETTING_COUNT = 11
+
     private val stamp: SimpleDateFormat
-        get() = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.getDefault())
+        get() = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT)
 
     fun export(ctx: Context): String? {
         val obj = JSONObject().apply {
@@ -37,6 +43,7 @@ object Backup {
             )
             put("settings", JSONObject().apply {
                 put("autoSave", Prefs.autoSave)
+                put("cleanOldExports", Prefs.cleanOldExports)
                 put("maxNodes", Prefs.maxNodes)
                 put("keepTop", Prefs.keepTop)
                 put("speedTop", Prefs.speedTop)
@@ -72,6 +79,7 @@ object Backup {
                 } else {
                     o.optJSONObject("settings")?.let { s ->
                         Prefs.autoSave = s.optBoolean("autoSave", Prefs.autoSave)
+                        Prefs.cleanOldExports = s.optBoolean("cleanOldExports", Prefs.cleanOldExports)
                         Prefs.maxNodes = s.optInt("maxNodes", Prefs.maxNodes)
                         Prefs.keepTop = s.optInt("keepTop", Prefs.keepTop)
                         Prefs.speedTop = s.optInt("speedTop", Prefs.speedTop)
@@ -91,7 +99,7 @@ object Backup {
                     }
                     Runner.schedule(ctx, Prefs.autoDaily)
                     Log.add("已从备份恢复：${Prefs.sources.size} 个源、${nodes.size} 个节点")
-                    "已恢复\n\n设置：10 项\n订阅源：${Prefs.sources.size} 个\n节点：${nodes.size} 个"
+                    "已恢复\n\n设置：${SETTING_COUNT} 项\n订阅源：${Prefs.sources.size} 个\n节点：${nodes.size} 个"
                 }
             }
         }

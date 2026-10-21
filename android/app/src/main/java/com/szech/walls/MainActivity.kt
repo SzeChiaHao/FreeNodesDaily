@@ -430,7 +430,7 @@ class MainActivity : AppCompatActivity() {
         MaterialAlertDialogBuilder(this)
             .setTitle("备份与恢复")
             .setMessage(
-                "备份内容：11 项设置、订阅源清单、当前节点池（含测速结果）。\n" +
+                "备份内容：${Backup.SETTING_COUNT} 项设置、订阅源清单、当前节点池（含测速结果）。\n" +
                     "文件写到「下载/Walls/」，恢复时从文件读回来。"
             )
             .setPositiveButton("导出备份") { _, _ ->

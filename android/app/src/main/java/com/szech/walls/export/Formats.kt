@@ -217,22 +217,6 @@ object Formats {
         return root.toString(2)
     }
 
-    /** 旧版 shadowsocks 客户端的 gui-config.json 数组格式 */
-    fun ssGuiConfig(nodes: List<Node>): String {
-        val arr = JSONArray()
-        for (n in ssList(nodes)) {
-            val o = JSONObject()
-            o.put("server", n.server)
-            o.put("server_port", n.port)
-            o.put("password", n.password)
-            o.put("method", n.cipher)
-            o.put("remarks", n.name)
-            o.put("timeout", 300)
-            arr.put(o)
-        }
-        return arr.toString(2)
-    }
-
     fun clashYaml(nodes: List<Node>, groupNote: String = ""): String {
         val proxies = nodes.map { clean(it.map) }
         val names = nodes.map { (it.map["name"] as? String) ?: it.name }
@@ -262,7 +246,7 @@ object Formats {
         sb.append("# ").append(title).append("\n\n")
         sb.append("- 节点数: ").append(nodes.size).append("\n\n")
         for ((i, n) in nodes.withIndex()) {
-            val sp = if (n.speed >= 0) String.format("%.2f MB/s", n.speed) else "-"
+            val sp = if (n.speed >= 0) String.format(java.util.Locale.ROOT, "%.2f MB/s", n.speed) else "-"
             val d = if (n.realDelay > 0) "${n.realDelay} ms" else if (n.delay > 0) "${n.delay} ms(TCP)" else "-"
             sb.append(i + 1).append(". ").append(n.name)
                 .append("  |  ").append(n.type)

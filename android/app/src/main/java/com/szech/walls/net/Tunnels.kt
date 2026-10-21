@@ -141,10 +141,18 @@ class TrojanTunnel(
         /** password -> hex(SHA224(password)) 的 56 字节 ASCII */
         fun hexSha224(password: String): ByteArray {
             val d = MessageDigest.getInstance("SHA-224").digest(password.toByteArray(Charsets.UTF_8))
-            val sb = StringBuilder(d.size * 2)
-            for (b in d) sb.append("%02x".format(b.toInt() and 0xFF))
-            return sb.toString().toByteArray(Charsets.US_ASCII)
+            // 别用 "%02x".format()：那是按默认 Locale 格式化的，阿拉伯语/波斯语环境下
+            // 会输出本地数字，算出来的密码摘要客户端根本对不上。
+            val out = ByteArray(d.size * 2)
+            for (i in d.indices) {
+                val v = d[i].toInt() and 0xFF
+                out[i * 2] = HEX[v ushr 4]
+                out[i * 2 + 1] = HEX[v and 0x0F]
+            }
+            return out
         }
+
+        private val HEX = "0123456789abcdef".toByteArray(Charsets.US_ASCII)
 
         /** hex(SHA224(password)) CRLF 0x01 ATYP ADDR PORT CRLF */
         fun buildRequest(hexPassword: ByteArray, host: String, port: Int): ByteArray {

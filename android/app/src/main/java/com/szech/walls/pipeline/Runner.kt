@@ -28,6 +28,7 @@ object Runner {
         measurableOnly = Prefs.measurableOnly,
         labelSpeed = Prefs.labelSpeed,
         quick = Prefs.quick,
+        mirrorFirst = Prefs.mirrorFirst,
         isCancelled = isCancelled
     )
 

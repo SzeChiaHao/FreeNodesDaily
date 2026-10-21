@@ -32,6 +32,8 @@ class PipelineConfig(
     var measurableOnly: Boolean = false,
     var labelSpeed: Boolean = true,
     var quick: Boolean = false,
+    /** 抓取时先试镜像（jsDelivr / gh-proxy），再试原链；关掉则反过来 */
+    var mirrorFirst: Boolean = true,
     /** 协作式取消：界面点了「停止」后为 true */
     var isCancelled: () -> Boolean = { false }
 )
@@ -51,13 +53,21 @@ object Pipeline {
 
     fun tcpDelay(host: String, port: Int, timeoutMs: Int): Int {
         val t0 = System.currentTimeMillis()
+        val s = Socket()
         return try {
-            val s = Socket()
             s.connect(InetSocketAddress(host, port), timeoutMs)
-            s.close()
             (System.currentTimeMillis() - t0).toInt().coerceAtLeast(1)
         } catch (e: Exception) {
             -1
+        } finally {
+            // 必须无条件关：connect 超时时不会自动关掉 socket，
+            // 几百个死节点下来 fd 就堆到上限，后面测速阶段会全军覆没在
+            // "Too many open files" 上。
+            try {
+                s.close()
+            } catch (e: Exception) {
+                // ignore
+            }
         }
     }
 
@@ -87,7 +97,7 @@ object Pipeline {
         onProgress: (String, Int, Int) -> Unit
     ): PipelineResult = withContext(Dispatchers.IO) {
         val start = System.currentTimeMillis()
-        val fetcher = Fetcher(timeoutMs = 12000)
+        val fetcher = Fetcher(timeoutMs = 12000, mirrorFirst = cfg.mirrorFirst)
 
         fun cancelledResult(candidates: Int = 0, alive: Int = 0, ok: Int = 0, fail: Int = 0) =
             PipelineResult(
@@ -187,7 +197,8 @@ object Pipeline {
         }
 
         // ---------- 阶段 2b：真实隧道测速 ----------
-        var measured = 0
+        // measured 是十几个协程一起改的，必须原子，否则报告里的「实测 N 个」会偏小
+        val measured = AtomicInteger(0)
         if (!cfg.quick) {
             val pool = alive.filter { TunnelFactory.measurable(it) }
                 .filter { it.delay <= cfg.speedMaxDelayMs }
@@ -202,13 +213,13 @@ object Pipeline {
                             speedSem.withPermit {
                                 if (cfg.isCancelled()) return@withPermit
                                 testOne(n, cfg)
-                                if (n.speed >= 0) measured++
+                                if (n.speed >= 0) measured.incrementAndGet()
                                 val c = speedDone.incrementAndGet()
                                 onProgress("实测速度", c, pool.size)
                                 if (c % 5 == 0 || c == pool.size) {
                                     onLog(
                                         "  实测 $c/${pool.size}：${n.name} -> " +
-                                            (if (n.speed >= 0) String.format("%.2f MB/s", n.speed) else "失败")
+                                            (if (n.speed >= 0) String.format(java.util.Locale.ROOT, "%.2f MB/s", n.speed) else "失败")
                                     )
                                 }
                             }
@@ -237,7 +248,7 @@ object Pipeline {
         val ordered = order(alive, cfg)
         onLog("== 阶段 3/3：排序完成，入选 ${ordered.size} 个节点 ==")
         PipelineResult(
-            ordered, limited.size, alive.size, measured, okCount, failCount,
+            ordered, limited.size, alive.size, measured.get(), okCount, failCount,
             System.currentTimeMillis() - start
         )
     }
@@ -367,7 +378,7 @@ object Pipeline {
         val out = ArrayList<Node>()
         for (n in result.take(cfg.keepTop)) {
             val node = if (cfg.labelSpeed && n.speed > 0 && !n.name.contains("MB/s")) {
-                n.withName(String.format("%.1fMB/s ", n.speed) + n.name)
+                n.withName(String.format(java.util.Locale.ROOT, "%.1fMB/s ", n.speed) + n.name)
             } else {
                 n
             }

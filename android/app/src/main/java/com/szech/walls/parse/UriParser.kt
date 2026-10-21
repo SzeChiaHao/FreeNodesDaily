@@ -5,7 +5,6 @@ import com.szech.walls.core.Text
 import com.szech.walls.model.JsonUtil
 import com.szech.walls.model.Node
 import org.json.JSONObject
-import java.net.InetAddress
 import java.util.Locale
 
 /**
@@ -42,19 +41,85 @@ object UriParser {
         return s == "1" || s == "true"
     }
 
+    private val IPV4_RE = Regex("""^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$""")
+
+    /**
+     * 判断这是不是一个「假节点」（内网 / 回环 / 保留地址）。
+     *
+     * 以前这里用 InetAddress.getByName(host)，等于给每个**域名**节点发一次真 DNS 查询。
+     * 去重阶段是串行的、节点数上千，在手机上这一步骤能悄悄吃掉几分钟，而日志里一句提示都没有
+     * ——「抓取完成」和「延迟测试开始」之间那段空窗就是它。PC 端 tools/fetch_nodes.py 用的是
+     * ipaddress.ip_address()，只解析字面量、不查 DNS，所以这边也得照做：
+     * 只认真正的 IP 字面量，域名一律当作「不是假节点」，交给后面的 TCP 测试去判死活。
+     */
     fun isDecoy(server: String?): Boolean {
         val s = (server ?: "").trim().lowercase(Locale.ROOT)
         if (s.isEmpty()) return true
-        if (s == "localhost" || s == "127.0.0.1" || s.startsWith("127.")) return true
-        val host = s.substringBefore('%')
-        return try {
-            val addr = InetAddress.getByName(host)
-            addr.isAnyLocalAddress || addr.isLoopbackAddress || addr.isLinkLocalAddress ||
-                addr.isSiteLocalAddress || addr.isMulticastAddress
-        } catch (e: Exception) {
-            false
+        if (s == "localhost" || s.startsWith("localhost.")) return true
+        var host = s.substringBefore('%')
+        if (host.startsWith("[") && host.endsWith("]")) host = host.substring(1, host.length - 1)
+        parseIpv4(host)?.let { return isDecoyV4(it) }
+        isDecoyV6(host)?.let { return it }
+        return false // 域名：不做 DNS，就当作候选留着
+    }
+
+    /** "1.2.3.4" -> [1,2,3,4]；不是合法点分十进制就返回 null */
+    private fun parseIpv4(h: String): IntArray? {
+        val m = IPV4_RE.find(h) ?: return null
+        val out = IntArray(4)
+        for (i in 0 until 4) {
+            val v = m.groupValues[i + 1].toIntOrNull() ?: return null
+            if (v > 255) return null
+            out[i] = v
+        }
+        return out
+    }
+
+    private fun isDecoyV4(a: IntArray): Boolean {
+        val (p, q) = a[0] to a[1]
+        return when {
+            p == 0 -> true                        // 0.0.0.0/8 本网络
+            p == 10 -> true                       // 10/8 私有
+            p == 127 -> true                      // 127/8 回环
+            p == 100 && q in 64..127 -> true      // 100.64/10 运营商级 NAT
+            p == 169 && q == 254 -> true          // 169.254/16 链路本地
+            p == 172 && q in 16..31 -> true       // 172.16/12 私有
+            p == 192 && q == 168 -> true          // 192.168/16 私有
+            p == 192 && q == 0 && a[2] == 0 -> true        // 192.0.0/24 协议保留
+            p == 192 && q == 0 && a[2] == 2 -> true        // 192.0.2/24 文档用
+            p == 198 && q in 18..19 -> true       // 198.18/15 基准测试
+            p == 198 && q == 51 && a[2] == 100 -> true     // 198.51.100/24 文档用
+            p == 203 && q == 0 && a[2] == 113 -> true      // 203.0.113/24 文档用
+            p >= 224 -> true                      // 224/4 组播 + 240/4 保留
+            else -> false
         }
     }
+
+    /**
+     * 只做前缀判断，不展开 ::；够用且绝不会误伤公网地址。
+     * 返回 null 表示「这压根不是 IPv6 字面量」。
+     */
+    private fun isDecoyV6(h: String): Boolean? {
+        if (!h.contains(':')) return null
+        val low = h.lowercase(Locale.ROOT)
+        return when {
+            low == "::" || low == "::1" -> true            // 未指定 / 回环
+            low.startsWith("fe8") || low.startsWith("fe9") ||
+                low.startsWith("fea") || low.startsWith("feb") -> true   // fe80::/10 链路本地
+            low.startsWith("fc") || low.startsWith("fd") -> true         // fc00::/7 唯一本地
+            low.startsWith("ff") -> true                     // ff00::/8 组播
+            low.startsWith("2001:db8") -> true               // 文档用
+            low.startsWith("::ffff:") -> {
+                // IPv4 映射地址：把尾巴当 IPv4 判
+                val tail = low.removePrefix("::ffff:")
+                parseIpv4(tail)?.let { isDecoyV4(it) } ?: false
+            }
+            else -> false
+        }
+    }
+
+    /** 分享链接里的主机名：IPv6 字面量在 URI 里写作 [2001:db8::1]，这里去掉方括号 */
+    private fun bareHost(h: String): String = h.trim().removePrefix("[").removeSuffix("]")
 
     private fun splitHostPort(hostPortRaw: String): Pair<String, Int>? {
         var hp = hostPortRaw
@@ -120,12 +185,14 @@ object UriParser {
 
     // ---------------------------------------------------------------- vless
 
-    private val VLESS_RE = Regex("""vless://([^@]+)@([^:/?#]+):(\d+)([^#]*)(?:#(.*))?""")
+    // 主机部分允许 [IPv6] 形式。以前写成 ([^:/?#]+)，碰上有冒号的地址就匹配失败、节点被静默丢掉。
+    private val VLESS_RE =
+        Regex("""vless://([^@]+)@(\[[0-9A-Fa-f:.]+\]|[^:/?#]+):(\d+)([^#]*)(?:#(.*))?""")
 
     private fun parseVless(uri: String): LinkedHashMap<String, Any?>? {
         val m = VLESS_RE.find(uri) ?: return null
         val uuid = m.groupValues[1]
-        val host = m.groupValues[2]
+        val host = bareHost(m.groupValues[2])
         val port = m.groupValues[3].toIntOrNull() ?: return null
         val query = m.groupValues[4]
         val frag = m.groupValues[5]
@@ -177,12 +244,13 @@ object UriParser {
 
     // --------------------------------------------------------------- trojan
 
-    private val TROJAN_RE = Regex("""trojan://([^@]*)@([^:/?#]+):(\d+)([^#]*)(?:#(.*))?""")
+    private val TROJAN_RE =
+        Regex("""trojan://([^@]*)@(\[[0-9A-Fa-f:.]+\]|[^:/?#]+):(\d+)([^#]*)(?:#(.*))?""")
 
     private fun parseTrojan(uri: String): LinkedHashMap<String, Any?>? {
         val m = TROJAN_RE.find(uri) ?: return null
         val password = m.groupValues[1]
-        val host = m.groupValues[2]
+        val host = bareHost(m.groupValues[2])
         val port = m.groupValues[3].toIntOrNull() ?: return null
         val query = m.groupValues[4]
         val frag = m.groupValues[5]
@@ -347,12 +415,13 @@ object UriParser {
 
     // ------------------------------------------------------------- hysteria
 
-    private val HY2_RE = Regex("""(?:hysteria2|hy2)://([^@]*)@([^:/?#]+):(\d+)([^#]*)(?:#(.*))?""")
+    private val HY2_RE =
+        Regex("""(?:hysteria2|hy2)://([^@]*)@(\[[0-9A-Fa-f:.]+\]|[^:/?#]+):(\d+)([^#]*)(?:#(.*))?""")
 
     private fun parseHysteria2(uri: String): LinkedHashMap<String, Any?>? {
         val m = HY2_RE.find(uri) ?: return null
         val auth = m.groupValues[1]
-        val host = m.groupValues[2]
+        val host = bareHost(m.groupValues[2])
         val port = m.groupValues[3].toIntOrNull() ?: return null
         val query = m.groupValues[4]
         val p = linkedMapOf<String, Any?>(
@@ -370,11 +439,12 @@ object UriParser {
         return p
     }
 
-    private val HY1_RE = Regex("""hysteria://([^:/?#]+):(\d+)([^#]*)(?:#(.*))?""")
+    private val HY1_RE =
+        Regex("""hysteria://(\[[0-9A-Fa-f:.]+\]|[^:/?#]+):(\d+)([^#]*)(?:#(.*))?""")
 
     private fun parseHysteria(uri: String): LinkedHashMap<String, Any?>? {
         val m = HY1_RE.find(uri) ?: return null
-        val host = m.groupValues[1]
+        val host = bareHost(m.groupValues[1])
         val port = m.groupValues[2].toIntOrNull() ?: return null
         val query = m.groupValues[3]
         val p = linkedMapOf<String, Any?>(
@@ -396,12 +466,13 @@ object UriParser {
 
     // ----------------------------------------------------------------- tuic
 
-    private val TUIC_RE = Regex("""tuic://([^@]+)@([^:/?#]+):(\d+)([^#]*)(?:#(.*))?""")
+    private val TUIC_RE =
+        Regex("""tuic://([^@]+)@(\[[0-9A-Fa-f:.]+\]|[^:/?#]+):(\d+)([^#]*)(?:#(.*))?""")
 
     private fun parseTuic(uri: String): LinkedHashMap<String, Any?>? {
         val m = TUIC_RE.find(uri) ?: return null
         val userinfo = m.groupValues[1]
-        val host = m.groupValues[2]
+        val host = bareHost(m.groupValues[2])
         val port = m.groupValues[3].toIntOrNull() ?: return null
         val query = m.groupValues[4]
         val uuid = userinfo.substringBefore(':')

@@ -105,10 +105,6 @@ class SsConnection(
 
     val remoteAddress: InetAddress
         get() = socket?.inetAddress ?: InetAddress.getByName("127.0.0.1")
-    val localAddress: InetAddress
-        get() = socket?.localAddress ?: InetAddress.getByName("127.0.0.1")
-    val localPort: Int get() = socket?.localPort ?: 0
-    val isClosed: Boolean get() = closed || (socket?.isClosed ?: true)
 
     fun connectSocket() {
         val s = Socket()
@@ -202,7 +198,8 @@ class SsConnection(
             out.write(c.doFinal(lenBuf))
             Crypto.incrementNonce(encNonce)
             c = aeadCipher(Cipher.ENCRYPT_MODE, encKey, encNonce)
-            out.write(c.doFinal(data.copyOfRange(p, p + n)))
+            // doFinal(数组, 偏移, 长度)：直接把原数组这一段加密出去，不再 copyOfRange 拷一份
+            out.write(c.doFinal(data, p, n))
             Crypto.incrementNonce(encNonce)
             p += n
             remaining -= n

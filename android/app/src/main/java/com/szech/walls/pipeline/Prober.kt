@@ -94,7 +94,10 @@ object Prober {
                     tunnel.open(t.host, t.port)
                     val r = TunnelHttp.get(tunnel, t.tls, t.host, t.port, path, speedBytes, HANDSHAKE_MS, BODY_MS)
                     if (r.ok && r.bytes > 16 * 1024 && r.elapsedMs > 0) {
-                        speed = r.bytes.toDouble() / (r.elapsedMs.toDouble() / 1000.0) / 1e6
+                        // 只算「收到首字节之后」的那段：TLS 握手 + 请求往返动辄 200~500ms，
+                        // 算进下载时间里会把速度系统性压低（512KB 只下 1 秒时能低 20%~50%）。
+                        val bodyMs = (r.elapsedMs - r.ttfbMs).coerceAtLeast(1)
+                        speed = r.bytes.toDouble() / (bodyMs.toDouble() / 1000.0) / 1e6
                         break
                     }
                 } catch (e: Exception) {

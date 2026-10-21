@@ -19,10 +19,15 @@ import java.util.zip.GZIPInputStream
  */
 class Fetcher(
     private val timeoutMs: Int = 12000,
-    private val mirrorFirst: Boolean = true
+    private val mirrorFirst: Boolean = true,
+    /** 镜像候选的单独超时：镜像多半是「很快就回」或者「根本不通」，不值得跟原链等一样久 */
+    private val mirrorTimeoutMs: Int = 6000
 ) {
 
     companion object {
+        /** 一条源最多试几个候选：原链 + 4 个镜像已经够用，再多只是把最坏情况拉长 */
+        const val MAX_CANDIDATES = 5
+
         const val UA =
             "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
 
@@ -116,18 +121,21 @@ class Fetcher(
     }
 
     /** 带镜像兜底抓取。 */
-    fun get(url: String): String? {
-        for (cand in mirrors(url, mirrorFirst)) {
-            val t = getOnce(cand)
-            if (!t.isNullOrBlank()) return t
-        }
-        return null
-    }
+    fun get(url: String): String? = getWithTimeout(url, timeoutMs)
 
+    /**
+     * 带镜像兜底、带超时抓取。
+     *
+     * 候选里只有「原链」用完整超时，镜像用短超时；候选总数也封顶。
+     * 以前是一条不通的源 = 8 个候选 × 12 秒 ≈ 96 秒，8 路并发全被几条死源拖住，
+     * 表现就是阶段 1 卡很久、日志一行不动。
+     */
     fun getWithTimeout(url: String, ms: Int): String? {
-        for (cand in mirrors(url, mirrorFirst)) {
-            val t = getOnce(cand, ms)
-            if (!t.isNullOrBlank()) return t
+        val candidates = mirrors(url, mirrorFirst).take(MAX_CANDIDATES)
+        for (cand in candidates) {
+            val t = if (cand == url) ms else minOf(mirrorTimeoutMs, ms)
+            val text = getOnce(cand, t)
+            if (!text.isNullOrBlank()) return text
         }
         return null
     }

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 抽屉：上半是四个主页面（与底栏/导航栏同步选中），下半分「数据」「其他」两组 -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <group android:checkableBehavior="single">
+        <item
+            android:id="@+id/overviewFragment"
+            android:icon="@drawable/ic_monitoring"
+            android:title="@string/nav_overview" />
+        <item
+            android:id="@+id/nodesFragment"
+            android:icon="@drawable/ic_public"
+            android:title="@string/nav_nodes" />
+        <item
+            android:id="@+id/exportFragment"
+            android:icon="@drawable/ic_download"
+            android:title="@string/nav_subs" />
+        <item
+            android:id="@+id/settingsFragment"
+            android:icon="@drawable/ic_tune"
+            android:title="@string/nav_settings" />
+    </group>
+
+    <item android:title="@string/drawer_group_data">
+        <menu>
+            <group android:checkableBehavior="none">
+                <item
+                    android:id="@+id/action_scan_import"
+                    android:icon="@drawable/ic_qr_code_scanner"
+                    android:title="@string/nav_scan_import" />
+                <item
+                    android:id="@+id/action_export_all"
+                    android:icon="@drawable/ic_copy_all"
+                    android:title="@string/nav_export_all" />
+                <item
+                    android:id="@+id/action_backup"
+                    android:icon="@drawable/ic_settings_backup_restore"
+                    android:title="@string/nav_backup" />
+                <item
+                    android:id="@+id/action_edit_sources"
+                    android:icon="@drawable/ic_edit"
+                    android:title="@string/nav_edit_sources" />
+            </group>
+        </menu>
+    </item>
+
+    <item android:title="@string/drawer_group_other">
+        <menu>
+            <group android:checkableBehavior="none">
+                <item
+                    android:id="@+id/action_guide"
+                    android:icon="@drawable/ic_menu_book"
+                    android:title="@string/nav_guide" />
+                <item
+                    android:id="@+id/action_check_update"
+                    android:icon="@drawable/ic_system_update"
+                    android:title="@string/nav_check_update" />
+                <item
+                    android:id="@+id/action_github"
+                    android:icon="@drawable/ic_link"
+                    android:title="@string/nav_github" />
+                <item
+                    android:id="@+id/action_about"
+                    android:icon="@drawable/ic_description"
+                    android:title="@string/nav_about" />
+            </group>
+        </menu>
+    </item>
+</menu>

@@ -19,9 +19,25 @@ object Prefs {
         }
     }
 
-    var port: Int
-        get() = sp.getInt("port", 8787)
-        set(v) = sp.edit().putInt("port", v).apply()
+    /** 抓取跑完之后，自动把各种格式的配置文件写进「下载/Walls/」 */
+    var autoSave: Boolean
+        get() = sp.getBoolean("autoSave", true)
+        set(v) = sp.edit().putBoolean("autoSave", v).apply()
+
+    /** 是否已经弹过「允许后台运行」的说明 */
+    var powerAsked: Boolean
+        get() = sp.getBoolean("powerAsked", false)
+        set(v) = sp.edit().putBoolean("powerAsked", v).apply()
+
+    /** 每次生成时顺手删掉以前生成的配置文件（只删本应用造的） */
+    var cleanOldExports: Boolean
+        get() = sp.getBoolean("cleanOldExports", true)
+        set(v) = sp.edit().putBoolean("cleanOldExports", v).apply()
+
+    /** 上次生成配置文件的时间（毫秒），0 表示还没生成过 */
+    var lastExportAt: Long
+        get() = sp.getLong("lastExportAt", 0L)
+        set(v) = sp.edit().putLong("lastExportAt", v).apply()
 
     var autoDaily: Boolean
         get() = sp.getBoolean("autoDaily", true)
@@ -40,7 +56,7 @@ object Prefs {
         set(v) = sp.edit().putInt("keepTop", v).apply()
 
     var speedTop: Int
-        get() = sp.getInt("speedTop", 40)
+        get() = sp.getInt("speedTop", 80)
         set(v) = sp.edit().putInt("speedTop", v).apply()
 
     var speedBytesKb: Int
@@ -53,7 +69,7 @@ object Prefs {
 
     /** 只保留「本机能真实测速」的协议（ss / trojan / vless），其余协议只做 TCP 延迟、默认不选 */
     var measurableOnly: Boolean
-        get() = sp.getBoolean("measurableOnly", true)
+        get() = sp.getBoolean("measurableOnly", false)
         set(v) = sp.edit().putBoolean("measurableOnly", v).apply()
 
     var labelSpeed: Boolean
@@ -153,21 +169,7 @@ object Repo {
     fun load() {
         try {
             val nf = File(dir, "nodes.json")
-            if (nf.exists()) {
-                val arr = JSONArray(nf.readText())
-                val list = ArrayList<Node>()
-                for (i in 0 until arr.length()) {
-                    val o = arr.optJSONObject(i) ?: continue
-                    val map = JsonUtil.jsonToMap(o.optJSONObject("p") ?: JSONObject())
-                    val n = Node(map)
-                    n.delay = o.optInt("d", -1)
-                    n.speed = o.optDouble("s", -1.0)
-                    n.realDelay = o.optInt("r", -1)
-                    n.note = o.optString("n", "")
-                    list.add(n)
-                }
-                nodes = list
-            }
+            if (nf.exists()) nodes = nodesFromJson(JSONArray(nf.readText()))
             val sf = File(dir, "status.json")
             if (sf.exists()) status = RunStatus.from(JSONObject(sf.readText()))
         } catch (e: Exception) {
@@ -175,19 +177,39 @@ object Repo {
         }
     }
 
+    /** 节点列表 → JSON（备份、落盘共用同一套格式） */
+    fun nodesToJson(list: List<Node> = nodes): JSONArray {
+        val arr = JSONArray()
+        for (n in list) {
+            arr.put(JSONObject().apply {
+                put("p", JsonUtil.mapToJson(n.map))
+                put("d", n.delay)
+                put("s", n.speed)
+                put("r", n.realDelay)
+                put("n", n.note)
+            })
+        }
+        return arr
+    }
+
+    fun nodesFromJson(arr: JSONArray): List<Node> {
+        val list = ArrayList<Node>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val map = JsonUtil.jsonToMap(o.optJSONObject("p") ?: JSONObject())
+            val n = Node(map)
+            n.delay = o.optInt("d", -1)
+            n.speed = o.optDouble("s", -1.0)
+            n.realDelay = o.optInt("r", -1)
+            n.note = o.optString("n", "")
+            list.add(n)
+        }
+        return list
+    }
+
     fun save() {
         try {
-            val arr = JSONArray()
-            for (n in nodes) {
-                arr.put(JSONObject().apply {
-                    put("p", JsonUtil.mapToJson(n.map))
-                    put("d", n.delay)
-                    put("s", n.speed)
-                    put("r", n.realDelay)
-                    put("n", n.note)
-                })
-            }
-            File(dir, "nodes.json").writeText(arr.toString())
+            File(dir, "nodes.json").writeText(nodesToJson().toString())
             File(dir, "status.json").writeText(status.toJson().toString())
         } catch (e: Exception) {
             // ignore

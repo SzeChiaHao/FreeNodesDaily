@@ -13,7 +13,7 @@ Clash / Clash Verge / mihomo、sing-box、v2rayN / v2rayNG、Shadowrocket、Shad
 
 ```
 tools/      Windows 端：Python 抓取 + mihomo 内核测速 + 导出多客户端订阅 + 同步 Clash Verge
-android/    Android 端：同款逻辑的 Kotlin 实现，抓取/测速/本地订阅服务一体化 App
+android/    Android 端：同款逻辑的 Kotlin 实现，抓取/测速/生成配置文件一体化 App
 ```
 
 ## 二、Windows 端（`tools/`）
@@ -52,15 +52,27 @@ powershell -ExecutionPolicy Bypass -File tools\daily_auto.ps1
 
 ## 三、Android 端（`android/`）
 
-「节点管家」App：把上面那套流水线搬到手机上——内置默认节点源、后台定时抓取与测速、
-在手机本地起一个订阅 HTTP 服务，直接把订阅地址喂给 Clash / Clash Verge / 其它客户端。
+「节点管家」App：把上面那套流水线搬到手机上——内置默认节点源、定时抓取与测速、
+把结果写成配置文件，再由你自己导入 Clash / Clash Verge / v2rayNG 等客户端。
 
 - 包名 `com.szech.walls`，`minSdk 26`，`targetSdk 34`，Kotlin + 原生 View。
 - 主要模块：`pipeline/`（默认节点源与流水线）、`net/`（抓取与自研隧道客户端）、
-  `parse/`（URI 解析）、`server/`（本地订阅服务）、`export/`（订阅格式导出）、`work/`（定时任务）。
+  `parse/`（URI 解析）、`export/`（订阅格式导出）、`run/`（运行状态与前台服务）、
+  `ui/`（四个页面）、`store/`（设置与结果）、`work/`（定时任务）。
 - 手机上没有 mihomo 内核，所以**测速用的协议客户端是自己实现的**：
   Shadowsocks（AEAD / 流式）、Trojan（tcp / ws + TLS）、VLESS（tcp / ws + TLS）。
   做法是拿一批「mihomo 能跑通」的节点当标准答案，做端到端比对，详见 **[android/README.md](android/README.md)**。
+
+### 手机端怎么把节点交给客户端
+
+2.0 起**不再起本地订阅服务**（`127.0.0.1:8787` 那套已经删掉）：后台被系统冻结后地址就失效，
+手机端这条路本来就走不稳。现在的做法跟电脑端一致——**产物是文件**：
+
+- 每次生成七个文件，落在手机「下载/Walls/」；
+- 文件名带时间戳，例如 `clash-20261018-1425.yaml`，不会撞名，也不会出现 `clash.yaml(1)`；
+- 抓取跑完可以自动保存（设置里「抓取后自动保存」），也可以按客户端单独生成；
+- 「生成后删除旧文件」默认开启，只删本应用生成的那些；
+- 运行期间起前台服务并持唤醒锁，锁屏、切后台都不中断；首次启动会引导关掉电池优化。
 
 发布新版本（App 会自动提示更新）：
 

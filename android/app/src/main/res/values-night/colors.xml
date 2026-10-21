@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 由 Material Color Utilities 生成：种子色 #1F6FEB（tonalSpot）。勿手改单个色值，改种子后整体重生成。 -->
+<resources>
+    <!-- 深色模式（values-night/） -->
+    <color name="md_primary">#afc6ff</color>
+    <color name="md_on_primary">#142f60</color>
+    <color name="md_primary_container">#2d4578</color>
+    <color name="md_on_primary_container">#d9e2ff</color>
+    <color name="md_secondary">#bfc6dc</color>
+    <color name="md_on_secondary">#293042</color>
+    <color name="md_secondary_container">#404759</color>
+    <color name="md_on_secondary_container">#dbe2f9</color>
+    <color name="md_tertiary">#dfbbde</color>
+    <color name="md_on_tertiary">#412742</color>
+    <color name="md_tertiary_container">#593e5a</color>
+    <color name="md_on_tertiary_container">#fdd7fb</color>
+    <color name="md_error">#ffb4ab</color>
+    <color name="md_on_error">#690005</color>
+    <color name="md_error_container">#93000a</color>
+    <color name="md_on_error_container">#ffdad6</color>
+    <color name="md_surface">#121318</color>
+    <color name="md_on_surface">#e2e2e9</color>
+    <color name="md_surface_variant">#44464f</color>
+    <color name="md_on_surface_variant">#c5c6d0</color>
+    <color name="md_surface_dim">#121318</color>
+    <color name="md_surface_bright">#38393e</color>
+    <color name="md_surface_container_lowest">#0c0e13</color>
+    <color name="md_surface_container_low">#1a1b20</color>
+    <color name="md_surface_container">#1e1f25</color>
+    <color name="md_surface_container_high">#282a2f</color>
+    <color name="md_surface_container_highest">#33353a</color>
+    <color name="md_outline">#8f9099</color>
+    <color name="md_outline_variant">#44464f</color>
+    <color name="md_inverse_surface">#e2e2e9</color>
+    <color name="md_inverse_on_surface">#2f3036</color>
+    <color name="md_inverse_primary">#465d91</color>
+    <color name="md_success">#a1d39a</color>
+    <color name="md_on_success">#0a390f</color>
+    <color name="md_success_container">#245024</color>
+    <color name="md_on_success_container">#bcf0b4</color>
+    <color name="md_walls_card_stroke">#1FFFFFFF</color>
+    <color name="md_walls_tile_ripple">#1FE2E2E9</color>
+    <color name="md_walls_divider">#14FFFFFF</color>
+    <!-- 图标底座底色：主色 12% -->
+    <color name="md_icon_box">#1FAFC6FF</color>
+</resources>

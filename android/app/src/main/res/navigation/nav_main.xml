@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  四个主页面 + 两个二级页。
+  概览 / 节点 / 订阅 / 设置 在宽屏下都是顶层；在手机上只有概览和节点是顶层，
+  订阅与设置从抽屉进、顶栏出返回箭头（顶层集合在 MainActivity 里按宽度决定）。
+-->
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/nav_main"
+    app:startDestination="@id/overviewFragment">
+
+    <fragment
+        android:id="@+id/overviewFragment"
+        android:name="com.szech.walls.ui.overview.OverviewFragment"
+        android:label="@string/nav_overview"
+        tools:layout="@layout/fragment_placeholder" />
+
+    <fragment
+        android:id="@+id/nodesFragment"
+        android:name="com.szech.walls.ui.nodes.NodesFragment"
+        android:label="@string/nav_nodes"
+        tools:layout="@layout/fragment_placeholder" />
+
+    <fragment
+        android:id="@+id/exportFragment"
+        android:name="com.szech.walls.ui.export.ExportFragment"
+        android:label="@string/nav_subs"
+        tools:layout="@layout/fragment_placeholder" />
+
+    <fragment
+        android:id="@+id/settingsFragment"
+        android:name="com.szech.walls.ui.settings.SettingsFragment"
+        android:label="@string/nav_settings"
+        tools:layout="@layout/fragment_placeholder" />
+
+    <fragment
+        android:id="@+id/guideFragment"
+        android:name="com.szech.walls.ui.guide.GuideFragment"
+        android:label="@string/nav_guide"
+        tools:layout="@layout/fragment_placeholder" />
+
+    <fragment
+        android:id="@+id/aboutFragment"
+        android:name="com.szech.walls.ui.about.AboutFragment"
+        android:label="@string/nav_about"
+        tools:layout="@layout/fragment_placeholder" />
+</navigation>

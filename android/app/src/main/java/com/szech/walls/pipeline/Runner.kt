@@ -10,10 +10,12 @@ import com.szech.walls.core.Log
 import com.szech.walls.store.Prefs
 import com.szech.walls.store.Repo
 import com.szech.walls.store.RunStatus
+import com.szech.walls.ui.WallsCmd
 import com.szech.walls.work.DailyWorker
+import com.szech.walls.WallsApp
 import java.util.concurrent.TimeUnit
 
-/** 把偏好设置变成一次流水线配置，并负责跑完落盘、重启订阅服务。 */
+/** 把偏好设置变成一次流水线配置，并负责跑完落盘、按设置自动生成配置文件。 */
 object Runner {
 
     fun config(isCancelled: () -> Boolean = { false }): PipelineConfig = PipelineConfig(
@@ -58,6 +60,17 @@ object Runner {
         )
         if (res.nodes.isNotEmpty()) {
             Repo.setResult(res.nodes, st)
+            // 抓取完成后自动落盘：产物是文件，不靠后台服务活着
+            if (Prefs.autoSave && !res.cancelled) {
+                onProgress("生成文件", 0, 1)
+                try {
+                    val n = WallsCmd.exportToDownloads(WallsApp.instance, Repo.nodes, notify = false)
+                    if (n > 0) onLog("已生成 $n 个配置文件到 下载/Walls/")
+                    onProgress("生成文件", 1, 1)
+                } catch (e: Exception) {
+                    onLog("生成配置文件失败：${e.message}")
+                }
+            }
         } else {
             Repo.setResult(Repo.nodes, st)
         }
@@ -69,22 +82,28 @@ object Runner {
     private const val WORK_NAME = "walls-daily"
 
     fun schedule(ctx: Context, enabled: Boolean) {
-        val wm = WorkManager.getInstance(ctx)
-        if (!enabled) {
-            wm.cancelUniqueWork(WORK_NAME)
-            return
-        }
-        val req = PeriodicWorkRequestBuilder<DailyWorker>(24, TimeUnit.HOURS)
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
-                    .build()
+        // 定时任务是「锦上添花」：WorkManager 初始化不了（Direct Boot、被系统限制等情况）
+        // 也不该把 App 一起拖掉，所以整段包一层。
+        try {
+            val wm = WorkManager.getInstance(ctx)
+            if (!enabled) {
+                wm.cancelUniqueWork(WORK_NAME)
+                return
+            }
+            val req = PeriodicWorkRequestBuilder<DailyWorker>(24, TimeUnit.HOURS)
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build()
+                )
+                .build()
+            wm.enqueueUniquePeriodicWork(
+                WORK_NAME,
+                ExistingPeriodicWorkPolicy.UPDATE,
+                req
             )
-            .build()
-        wm.enqueueUniquePeriodicWork(
-            WORK_NAME,
-            ExistingPeriodicWorkPolicy.UPDATE,
-            req
-        )
+        } catch (e: Exception) {
+            Log.add("定时更新没能安排上：${e.message}")
+        }
     }
 }

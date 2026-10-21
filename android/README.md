@@ -1,11 +1,11 @@
 # Walls · 节点管家（Android）
 
-免费节点「抓取 → 真实隧道测速 → 按速度排序 → 本地订阅」的手机版。
+免费节点「抓取 → 真实隧道测速 → 按速度排序 → 生成配置文件」的手机版。
 和 Windows 版 `tools/` 同一套思路，区别是手机上没有 mihomo 内核，
 所以**测速用的协议客户端是自己实现的**。
 
 - 包名 `com.szech.walls`，`minSdk 26`，`targetSdk 34`，Kotlin + 原生 View（无 XML 布局，UI 全在代码里）。
-- 抓取、测速、订阅服务全部在本机完成，订阅服务只监听 `127.0.0.1`，不对外开端口。
+- 抓取、测速、生成文件全部在本机完成。产物写到「下载/Walls/」，不再起本地订阅服务。
 
 ## 一、代码结构
 
@@ -16,7 +16,8 @@ parse/      分享链接解析（ss / ssr / vmess / vless / trojan / hy2 / tuic�
 net/        网络层：抓取器、隧道协议、TLS/WebSocket 流、HTTP 探测
 pipeline/   流水线：DefaultSources 默认节点源、Pipeline 三阶段、Prober 测速、Runner 调度
 export/     订阅导出：Clash YAML / SIP008 / base64 / 分享链接 / 报告
-server/     本地订阅 HTTP 服务（SubServer）+ 前台服务（SubService）+ 首页 HTML
+run/        运行状态（四段进度、ETA）+ 前台服务与唤醒锁
+ui/         页面：概览 / 节点 / 导出 / 设置 / 指南 / 关于，外加扫码与备份
 store/      SharedPreferences 设置与结果仓库
 work/       WorkManager 每日自动更新
 ```
@@ -35,7 +36,7 @@ TCP socket
 ```
 
 拿到 `Prober` 的延迟/速度后，`Pipeline` 按速度降序排序、按阈值过滤、给节点名加速度前缀，
-最后交给 `export/` 和 `server/` 输出成各种订阅。
+最后交给 `export/` 写成各家的配置文件。
 
 ### 协议支持矩阵
 

@@ -2,4 +2,26 @@
 <resources>
     <string name="app_name">节点管家</string>
     <string name="app_sub">Walls · 免费节点抓取测速与订阅</string>
+
+    <!-- 导航 -->
+    <string name="nav_overview">概览</string>
+    <string name="nav_nodes">节点</string>
+    <string name="nav_subs">导出</string>
+    <string name="nav_settings">设置</string>
+    <string name="nav_more">更多</string>
+    <string name="nav_log">运行日志</string>
+
+    <string name="drawer_group_data">数据</string>
+    <string name="drawer_group_other">其他</string>
+    <string name="nav_scan_import">扫码导入</string>
+    <string name="nav_export_all">导出全部格式</string>
+    <string name="nav_backup">备份与恢复</string>
+    <string name="nav_edit_sources">编辑订阅源</string>
+    <string name="nav_check_update">检查更新</string>
+    <string name="nav_github">GitHub 仓库</string>
+    <string name="nav_guide">用户指南</string>
+    <string name="nav_close_drawer">收起侧栏</string>
+    <string name="scan_close">关闭扫码</string>
+    <string name="scan_torch">手电筒</string>
+    <string name="nav_about">关于</string>
 </resources>

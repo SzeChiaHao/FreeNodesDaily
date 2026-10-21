@@ -1,4 +1,4 @@
-﻿# 一键打手机安装包：可选自动升版本号 -> 编译 release -> 复制到「下载」目录
+﻿# 一键打手机安装包：可选自动升版本号 -> 编译 release -> 复制到 D:/Walls/out/
 #
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File D:\Walls\build-apk.ps1              # 版本号 +1 再编译
@@ -25,6 +25,9 @@ $Gradle  = Join-Path $Android 'gradlew.bat'
 $Bkts    = Join-Path $Android 'app\build.gradle.kts'
 $Jdk     = Join-Path $Root 'build\jdk\jdk-17.0.13+11'
 $OutDir  = Join-Path $Android 'app\build\outputs\apk\release'
+
+# Gradle 的缓存目录固定到 D 盘（默认是 C:/Users/<用户>/.gradle，会吃掉一个多 G）
+$env:GRADLE_USER_HOME = 'D:\gradle'
 
 if (-not (Test-Path $Gradle)) { Write-Host "找不到 $Gradle" -ForegroundColor Red; exit 2 }
 if (-not (Test-Path $Bkts))   { Write-Host "找不到 $Bkts" -ForegroundColor Red; exit 2 }
@@ -72,10 +75,29 @@ try {
 }
 if ($code -ne 0) { Write-Host "编译失败（退出码 $code）" -ForegroundColor Red; exit $code }
 
-# ---- 复制到「下载」目录，文件名带版本 ----
+# ---- 复制到项目里的 out 目录，文件名带版本 ----
+# 不往 C 盘「下载」写：产物统一落在 D:/Walls/out/，好找也好清。
 $apk = Join-Path $OutDir 'app-release.apk'
 if (-not (Test-Path $apk)) { Write-Host "没找到产物 $apk" -ForegroundColor Red; exit 5 }
-$dest = Join-Path (Join-Path $env:USERPROFILE 'Downloads') "Walls-$newName.apk"
+$DestDir = Join-Path $Root 'out'
+if (-not (Test-Path $DestDir)) { New-Item -ItemType Directory -Path $DestDir | Out-Null }
+# 文件名带上 versionCode，一个版本一个文件；已经存在就再缀个时间，绝不覆盖旧的。
+# out 只增不减：出问题时能回退到任意一版。
+$dest = Join-Path $DestDir "Walls-$newName-vc$newCode.apk"
+if (Test-Path $dest) {
+    # 同一版本重编：内容一样就不重复存，内容变了才另存一份带时间的
+    $oldHash = (Get-FileHash $dest -Algorithm SHA256).Hash
+    $newHash = (Get-FileHash $apk -Algorithm SHA256).Hash
+    if ($oldHash -eq $newHash) {
+        $size0 = [math]::Round((Get-Item $dest).Length / 1MB, 2)
+        Write-Host ''
+        Write-Host "内容与已有包一致，未重复保存：$dest ($size0 MB)" -ForegroundColor Green
+        Write-Host '把它传到手机安装即可覆盖旧版（签名一致，数据保留）。' -ForegroundColor Green
+        exit 0
+    }
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $dest = Join-Path $DestDir "Walls-$newName-vc$newCode-$stamp.apk"
+}
 Copy-Item -Force $apk $dest
 
 $size = [math]::Round((Get-Item $dest).Length / 1MB, 2)

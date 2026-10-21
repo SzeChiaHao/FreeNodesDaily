@@ -26,6 +26,7 @@ __pycache__/
 
 # ===== 临时文件与下载包 =====
 .tmp/
+/out/
 *.log
 *.zip
 *.tar.gz

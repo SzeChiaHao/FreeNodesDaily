@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="20dp"
+    android:paddingTop="14dp"
+    android:paddingEnd="8dp"
+    android:paddingBottom="12dp">
+
+    <FrameLayout
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="@drawable/bg_icon_box_40">
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="center"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_public"
+            app:tint="?attr/colorPrimary" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="14dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textAppearance="@style/TextAppearance.Walls.DrawerTitle" />
+
+        <TextView
+            android:id="@+id/drawer_version"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.Walls.Caption"
+            tools:text="v1.5 · 40 个节点" />
+    </LinearLayout>
+
+    <!-- 手机上用来收起抽屉；840dp 起的常驻侧栏里没有抽屉可关，代码里会把它藏掉 -->
+    <ImageButton
+        android:id="@+id/drawer_close"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/nav_close_drawer"
+        android:src="@drawable/ic_close"
+        app:tint="?attr/colorOnSurfaceVariant" />
+</LinearLayout>

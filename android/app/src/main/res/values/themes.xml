@@ -1,35 +1,316 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  节点管家的设计体系。
+
+  形状标尺、卡片规格、列表项规格这一套，是照着「不高山上（Bugaoshan）」
+  的 Flutter 主题抄过来的（lib/theme_shape.dart + lib/theme.dart 里的
+  AppShapes / cardTheme / listTileTheme），也就是 Material 3 Expressive：
+
+    形状   xs 8 / s 12 / m 16 / l 20 / xl 28 / 药丸 50%
+    卡片   20dp 圆角、surfaceContainerLow 底、1dp 描边、几乎无阴影、无表头分隔线
+    列表项 内边距 竖 16dp 横 20dp、左图标底座 36dp、右侧 chevron
+    标题   加粗、比正文大一号
+    按钮   全部药丸形（stadium）
+
+  颜色全部来自 values/colors.xml 与 values-night/colors.xml 里的 md_* 令牌，
+  由 Material Color Utilities 用种子色 #1F6FEB 生成，深浅两套一一对应。
+  界面里不要出现任何硬编码色值，一律走 ?attr/colorXxx 或 @color/md_xxx。
+-->
 <resources>
-    <style name="Theme.Walls" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/brand</item>
-        <item name="colorPrimaryDark">@color/brand_dark</item>
-        <item name="colorAccent">@color/brand</item>
-        <item name="android:windowBackground">@color/bg</item>
+
+    <!-- ============================ 形状标尺 ============================ -->
+    <!-- 与 Bugaoshan AppShapes 一一对应 -->
+    <style name="ShapeAppearance.Walls.Corner.Xs" parent="ShapeAppearance.Material3.Corner.ExtraSmall">
+        <item name="cornerSize">8dp</item>
+    </style>
+    <style name="ShapeAppearance.Walls.Corner.S" parent="ShapeAppearance.Material3.Corner.Small">
+        <item name="cornerSize">12dp</item>
+    </style>
+    <style name="ShapeAppearance.Walls.Corner.M" parent="ShapeAppearance.Material3.Corner.Medium">
+        <item name="cornerSize">16dp</item>
+    </style>
+    <style name="ShapeAppearance.Walls.Corner.L" parent="ShapeAppearance.Material3.Corner.Large">
+        <item name="cornerSize">20dp</item>
+    </style>
+    <style name="ShapeAppearance.Walls.Corner.Xl" parent="ShapeAppearance.Material3.Corner.ExtraLarge">
+        <item name="cornerSize">28dp</item>
     </style>
 
-    <style name="WallsButton" parent="Widget.MaterialComponents.Button">
+    <!-- 图标底座：36dp 方块，圆角 12dp -->
+    <style name="ShapeAppearance.Walls.IconBox" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">12dp</item>
+    </style>
+
+    <!-- 完全药丸形 -->
+    <style name="ShapeAppearance.Walls.Pill" parent="ShapeAppearance.Material3.Corner.Full" />
+
+    <!-- ============================ 文字样式 ============================ -->
+    <!-- 页面大标题 -->
+    <style name="TextAppearance.Walls.PageTitle" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">22sp</item>
+    </style>
+
+    <!-- 卡片标题：加粗、略大于正文（对应 Bugaoshan 的 titleText，w800 + 1.3x） -->
+    <style name="TextAppearance.Walls.CardTitle" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">17sp</item>
+        <item name="android:letterSpacing">0.01</item>
+    </style>
+
+    <!-- 列表项主文字 -->
+    <style name="TextAppearance.Walls.TileLabel" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+
+    <!-- 列表项右侧取值 -->
+    <style name="TextAppearance.Walls.TileValue" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+        <item name="android:textSize">13.5sp</item>
+    </style>
+
+    <!-- 说明文字 -->
+    <style name="TextAppearance.Walls.Caption" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+        <item name="android:textSize">12.5sp</item>
+    </style>
+
+    <!-- 顶栏应用名 -->
+    <style name="TextAppearance.Walls.Toolbar" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- 侧栏头里的应用名 -->
+    <style name="TextAppearance.Walls.DrawerTitle" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- 侧栏里的分组小标题（数据 / 其他） -->
+    <style name="TextAppearance.Walls.DrawerGroup" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="android:textSize">11.5sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.04</item>
+    </style>
+
+    <!-- 节点排名徽标里的名次数字 -->
+    <style name="TextAppearance.Walls.Rank" parent="TextAppearance.Material3.LabelLarge">
         <item name="android:textSize">13sp</item>
-        <item name="android:minHeight">42dp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- 设置页里的分组小标题（「数量与速度」这种）：主色、楷体正文稍大 -->
+    <style name="TextAppearance.Walls.GroupTitle" parent="TextAppearance.Material3.TitleSmall">
+        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- 运行日志等宽字体 -->
+    <style name="TextAppearance.Walls.Mono" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+        <item name="android:textSize">11.5sp</item>
+        <item name="android:fontFamily">monospace</item>
+    </style>
+
+    <!-- ============================== 卡片 ============================== -->
+    <!-- 主卡片：20dp 圆角 + 1dp 描边 + surfaceContainerLow 底（Bugaoshan StyledCard 规格） -->
+    <style name="Widget.Walls.Card" parent="Widget.Material3.CardView.Elevated">
+        <item name="cardBackgroundColor">?attr/colorSurfaceContainerLow</item>
+        <item name="cardCornerRadius">20dp</item>
+        <item name="cardElevation">2dp</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="strokeColor">@color/md_walls_card_stroke</item>
+    </style>
+
+    <!-- ============================== 按钮 ============================== -->
+    <!-- 按钮的分级：MaterialButton 的样式只能通过主题属性 materialButtonStyle 注入，
+         所以每个按钮都用 ContextThemeWrapper 套一层下面这些 overlay。 -->
+    <style name="ThemeOverlay.Walls.Button" parent="">
+        <item name="materialButtonStyle">@style/Widget.Walls.Button</item>
+    </style>
+    <style name="ThemeOverlay.Walls.Button.Tonal" parent="">
+        <item name="materialButtonStyle">@style/Widget.Walls.Button.Tonal</item>
+    </style>
+    <style name="ThemeOverlay.Walls.Button.Outlined" parent="">
+        <item name="materialButtonStyle">@style/Widget.Walls.Button.Outlined</item>
+    </style>
+    <style name="ThemeOverlay.Walls.Button.Text" parent="">
+        <item name="materialButtonStyle">@style/Widget.Walls.Button.Text</item>
+    </style>
+
+    <!-- 实心（主操作）
+         左右内边距压到 12dp、图标 16dp、且强制单行 + 自动缩字：
+         两颗按钮并排各占一半时，180dp 以下的机子也放得下「开始更新」四个字不会折行。 -->
+    <style name="Widget.Walls.Button" parent="Widget.Material3.Button">
+        <item name="android:textSize">14sp</item>
+        <item name="android:minHeight">44dp</item>
+        <item name="android:minWidth">0dp</item>
         <item name="android:insetTop">0dp</item>
         <item name="android:insetBottom">0dp</item>
-        <item name="android:letterSpacing">0.02</item>
+        <item name="android:letterSpacing">0.01</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="iconGravity">textStart</item>
+        <item name="iconPadding">6dp</item>
+        <item name="iconSize">16dp</item>
+        <item name="android:paddingLeft">12dp</item>
+        <item name="android:paddingRight">12dp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:autoSizeTextType">uniform</item>
+        <item name="android:autoSizeMinTextSize">10sp</item>
+        <item name="android:autoSizeMaxTextSize">14sp</item>
     </style>
 
-    <style name="WallsButtonOutlined" parent="Widget.MaterialComponents.Button.OutlinedButton">
-        <item name="android:textSize">13sp</item>
-        <item name="android:minHeight">42dp</item>
+    <!-- 描边（次操作） -->
+    <style name="Widget.Walls.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:textSize">14sp</item>
+        <item name="android:minHeight">44dp</item>
+        <item name="android:minWidth">0dp</item>
         <item name="android:insetTop">0dp</item>
         <item name="android:insetBottom">0dp</item>
+        <item name="android:letterSpacing">0.01</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="iconGravity">textStart</item>
+        <item name="iconPadding">6dp</item>
+        <item name="iconSize">16dp</item>
+        <item name="android:paddingLeft">12dp</item>
+        <item name="android:paddingRight">12dp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:autoSizeTextType">uniform</item>
+        <item name="android:autoSizeMinTextSize">10sp</item>
+        <item name="android:autoSizeMaxTextSize">14sp</item>
     </style>
 
-    <style name="WallsCard">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginStart">10dp</item>
-        <item name="android:layout_marginEnd">10dp</item>
-        <item name="android:layout_marginTop">8dp</item>
-        <item name="cardCornerRadius">12dp</item>
-        <item name="cardElevation">1dp</item>
-        <item name="cardBackgroundColor">@color/card</item>
+    <!-- 柔色（同族色底，用于「复制」「打开」这类小动作） -->
+    <style name="Widget.Walls.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
+        <item name="android:textSize">13sp</item>
+        <item name="android:minHeight">36dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:paddingLeft">14dp</item>
+        <item name="android:paddingRight">14dp</item>
     </style>
+
+    <!-- 纯文字（第三级操作） -->
+    <style name="Widget.Walls.Button.Text" parent="Widget.Material3.Button.TextButton">
+        <item name="android:textSize">14sp</item>
+        <item name="android:minHeight">40dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:paddingLeft">14dp</item>
+        <item name="android:paddingRight">14dp</item>
+    </style>
+
+    <!-- ============================== 导航 ============================== -->
+    <!-- 底栏：M3 默认就是 surfaceContainer 底 + secondaryContainer 药丸指示器，
+         只把阴影去掉，改由布局里那道 1dp 分隔线分界 -->
+    <style name="Widget.Walls.NavigationBar" parent="Widget.Material3.BottomNavigationView">
+        <item name="elevation">0dp</item>
+    </style>
+
+    <!-- 导航栏（宽屏左侧） -->
+    <style name="Widget.Walls.NavigationRail" parent="Widget.Material3.NavigationRailView">
+        <item name="elevation">0dp</item>
+        <item name="itemMinHeight">60dp</item>
+    </style>
+
+    <!-- 侧栏（抽屉 / 常驻） -->
+    <style name="Widget.Walls.NavigationView" parent="Widget.Material3.NavigationView">
+        <item name="elevation">0dp</item>
+        <item name="subheaderTextAppearance">@style/TextAppearance.Walls.DrawerGroup</item>
+        <item name="itemIconSize">22dp</item>
+    </style>
+
+    <!-- ============================== 主题 ============================== -->
+    <style name="Theme.Walls" parent="Theme.Material3.DayNight.NoActionBar">
+
+        <!-- 颜色令牌：浅色在 values/colors.xml，深色在 values-night/colors.xml -->
+        <item name="colorPrimary">@color/md_primary</item>
+        <item name="colorOnPrimary">@color/md_on_primary</item>
+        <item name="colorPrimaryContainer">@color/md_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/md_on_primary_container</item>
+        <item name="colorPrimaryInverse">@color/md_inverse_primary</item>
+
+        <item name="colorSecondary">@color/md_secondary</item>
+        <item name="colorOnSecondary">@color/md_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/md_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/md_on_secondary_container</item>
+
+        <item name="colorTertiary">@color/md_tertiary</item>
+        <item name="colorOnTertiary">@color/md_on_tertiary</item>
+        <item name="colorTertiaryContainer">@color/md_tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/md_on_tertiary_container</item>
+
+        <item name="colorError">@color/md_error</item>
+        <item name="colorOnError">@color/md_on_error</item>
+        <item name="colorErrorContainer">@color/md_error_container</item>
+        <item name="colorOnErrorContainer">@color/md_on_error_container</item>
+
+        <item name="android:colorBackground">@color/md_surface</item>
+        <item name="colorOnBackground">@color/md_on_surface</item>
+        <item name="colorSurface">@color/md_surface</item>
+        <item name="colorOnSurface">@color/md_on_surface</item>
+        <item name="colorSurfaceVariant">@color/md_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/md_on_surface_variant</item>
+        <item name="colorSurfaceInverse">@color/md_inverse_surface</item>
+        <item name="colorOnSurfaceInverse">@color/md_inverse_on_surface</item>
+
+        <item name="colorSurfaceDim">@color/md_surface_dim</item>
+        <item name="colorSurfaceBright">@color/md_surface_bright</item>
+        <item name="colorSurfaceContainerLowest">@color/md_surface_container_lowest</item>
+        <item name="colorSurfaceContainerLow">@color/md_surface_container_low</item>
+        <item name="colorSurfaceContainer">@color/md_surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/md_surface_container_high</item>
+        <item name="colorSurfaceContainerHighest">@color/md_surface_container_highest</item>
+
+        <item name="colorOutline">@color/md_outline</item>
+        <item name="colorOutlineVariant">@color/md_outline_variant</item>
+
+        <!-- 形状标尺：覆盖成 Bugaoshan AppShapes 的那一套
+             ExtraSmall 8 / Small 12 / Medium 16 / Large 20 / ExtraLarge 28
+             卡片默认取 Large（20dp），弹窗与底部弹层取 ExtraLarge（28dp）。 -->
+        <item name="shapeAppearanceCornerExtraSmall">@style/ShapeAppearance.Walls.Corner.Xs</item>
+        <item name="shapeAppearanceCornerSmall">@style/ShapeAppearance.Walls.Corner.S</item>
+        <item name="shapeAppearanceCornerMedium">@style/ShapeAppearance.Walls.Corner.M</item>
+        <item name="shapeAppearanceCornerLarge">@style/ShapeAppearance.Walls.Corner.L</item>
+        <item name="shapeAppearanceCornerExtraLarge">@style/ShapeAppearance.Walls.Corner.Xl</item>
+
+        <!-- 窗口 -->
+        <item name="android:windowBackground">@color/md_surface</item>
+        <item name="android:statusBarColor">@color/md_surface</item>
+        <item name="android:navigationBarColor">@color/md_surface</item>
+        <item name="android:windowLightStatusBar">@bool/walls_light_system_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/walls_light_system_bars</item>
+
+        <!-- 组件默认样式 -->
+        <item name="materialButtonStyle">@style/Widget.Walls.Button</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Walls.Dialog.Alert</item>
+        <item name="alertDialogTheme">@style/ThemeOverlay.Walls.Dialog.Alert</item>
+        <item name="bottomSheetDialogTheme">@style/ThemeOverlay.Walls.BottomSheet</item>
+        <item name="bottomNavigationStyle">@style/Widget.Walls.NavigationBar</item>
+        <item name="navigationRailStyle">@style/Widget.Walls.NavigationRail</item>
+        <item name="navigationViewStyle">@style/Widget.Walls.NavigationView</item>
+        <item name="toolbarStyle">@style/Widget.Material3.Toolbar</item>
+    </style>
+
+    <style name="ThemeOverlay.Walls.Dialog.Alert" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="shapeAppearanceCornerExtraLarge">@style/ShapeAppearance.Walls.Corner.Xl</item>
+    </style>
+
+    <style name="ThemeOverlay.Walls.BottomSheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="shapeAppearanceCornerExtraLarge">@style/ShapeAppearance.Walls.Corner.Xl</item>
+    </style>
+
 </resources>

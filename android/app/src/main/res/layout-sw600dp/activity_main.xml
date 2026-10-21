@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 600dp 起：底栏换成左侧导航栏（rail），四个主页面都能直达 -->
+<androidx.drawerlayout.widget.DrawerLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawer_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal">
+
+        <com.google.android.material.navigationrail.NavigationRailView
+            android:id="@+id/rail_nav"
+            style="@style/Widget.Walls.NavigationRail"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            app:headerLayout="@layout/rail_header"
+            app:menu="@menu/menu_rail" />
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:background="@color/md_walls_divider" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <com.google.android.material.appbar.MaterialToolbar
+                android:id="@+id/toolbar"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:background="?attr/colorSurface"
+                app:navigationIconTint="?attr/colorOnSurfaceVariant"
+                app:title="@string/app_name"
+                app:titleTextAppearance="@style/TextAppearance.Walls.Toolbar" />
+
+            <androidx.fragment.app.FragmentContainerView
+                android:id="@+id/nav_host"
+                android:name="androidx.navigation.fragment.NavHostFragment"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                app:defaultNavHost="true"
+                app:navGraph="@navigation/nav_main" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/drawer_panel"
+        android:layout_width="272dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:background="?attr/colorSurfaceContainerLow"
+        android:orientation="vertical">
+
+        <include layout="@layout/nav_header" />
+
+        <com.google.android.material.navigation.NavigationView
+            android:id="@+id/drawer_nav"
+            style="@style/Widget.Walls.NavigationView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:overScrollMode="ifContentScrolls"
+            android:paddingBottom="12dp"
+            app:menu="@menu/menu_drawer" />
+    </LinearLayout>
+</androidx.drawerlayout.widget.DrawerLayout>

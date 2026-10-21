@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 840dp 起：侧栏常驻，不再有抽屉和底栏，内容与侧栏并排 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
+    android:orientation="horizontal">
+
+    <LinearLayout
+        android:id="@+id/drawer_panel"
+        android:layout_width="272dp"
+        android:layout_height="match_parent"
+        android:background="?attr/colorSurfaceContainerLow"
+        android:orientation="vertical">
+
+        <include layout="@layout/nav_header" />
+
+        <com.google.android.material.navigation.NavigationView
+            android:id="@+id/drawer_nav"
+            style="@style/Widget.Walls.NavigationView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:overScrollMode="ifContentScrolls"
+            android:paddingBottom="12dp"
+            app:menu="@menu/menu_drawer" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="1dp"
+        android:layout_height="match_parent"
+        android:background="@color/md_walls_divider" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="?attr/colorSurface"
+            app:navigationIconTint="?attr/colorOnSurfaceVariant"
+            app:title="@string/app_name"
+            app:titleTextAppearance="@style/TextAppearance.Walls.Toolbar" />
+
+        <androidx.fragment.app.FragmentContainerView
+            android:id="@+id/nav_host"
+            android:name="androidx.navigation.fragment.NavHostFragment"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            app:defaultNavHost="true"
+            app:navGraph="@navigation/nav_main" />
+    </LinearLayout>
+</LinearLayout>

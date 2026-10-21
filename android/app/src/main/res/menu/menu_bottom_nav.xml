@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 底栏三项：概览、节点、导出。设置从汉堡抽屉进。 -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/overviewFragment"
+        android:icon="@drawable/ic_monitoring"
+        android:title="@string/nav_overview" />
+    <item
+        android:id="@+id/nodesFragment"
+        android:icon="@drawable/ic_public"
+        android:title="@string/nav_nodes" />
+    <item
+        android:id="@+id/exportFragment"
+        android:icon="@drawable/ic_download"
+        android:title="@string/nav_subs" />
+</menu>

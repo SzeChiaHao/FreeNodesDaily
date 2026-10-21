@@ -13,8 +13,8 @@ android {
         applicationId = "com.szech.walls"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.4"
+        versionCode = 11
+        versionName = "2.0"
         resourceConfigurations += listOf("zh", "en")
     }
 
@@ -67,6 +67,11 @@ android {
         abortOnError = false
         checkReleaseBuilds = false
     }
+
+    // Robolectric 需要真实资源（布局 / 主题）才能把 Activity 跑起来
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
@@ -76,9 +81,14 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.navigation:navigation-fragment-ktx:2.7.7")
+    implementation("androidx.navigation:navigation-ui-ktx:2.7.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.yaml:snakeyaml:2.2")
+    // 扫码导入 / 生成二维码
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.13")
     // 单元测试里 org.json 会被 android.jar 的桩顶掉，显式引一份真的
     testImplementation("org.json:json:20240303")
 }

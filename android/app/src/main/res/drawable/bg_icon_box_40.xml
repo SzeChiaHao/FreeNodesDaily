@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 36dp 图标底座（导航栏、列表项用）：主色 12% 底 + 12dp 圆角 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/md_icon_box" />
+    <corners android:radius="12dp" />
+</shape>

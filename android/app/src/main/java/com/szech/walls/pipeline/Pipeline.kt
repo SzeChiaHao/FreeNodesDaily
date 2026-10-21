@@ -23,13 +23,13 @@ class PipelineConfig(
     var maxNodes: Int = 600,
     var tcpTimeoutMs: Int = 2500,
     var maxDelayMs: Int = 3000,
-    var speedTop: Int = 40,
-    var speedMaxDelayMs: Int = 2000,
+    var speedTop: Int = 80,
+    var speedMaxDelayMs: Int = 1500,
     var minSpeedMbps: Double = 0.2,
     var keepTop: Int = 40,
     var speedBytes: Int = 512 * 1024,
     /** 只保留「本机能真实测速」的协议（ss / trojan / vless） */
-    var measurableOnly: Boolean = true,
+    var measurableOnly: Boolean = false,
     var labelSpeed: Boolean = true,
     var quick: Boolean = false,
     /** 协作式取消：界面点了「停止」后为 true */
@@ -266,6 +266,9 @@ object Pipeline {
 
     // ------------------------------------------------------------ 工具
 
+    private fun keyOf(n: Node): String =
+        "${n.type}|${n.server}|${n.port}|${(n.map["uuid"] ?: n.map["password"] ?: "").toString().take(12)}"
+
     private fun dedupe(input: List<Node>): Pair<List<Node>, Int> {
         val seen = HashSet<String>()
         val out = ArrayList<Node>()
@@ -302,6 +305,12 @@ object Pipeline {
         return out to dropped
     }
 
+    /** 最终名单里每种协议至少留几条，跟 PC 端 --keep-per-type 一个意思，免得 ss 被别的协议挤干净 */
+    private val KEEP_PER_TYPE = mapOf(
+        "ss" to 6, "vmess" to 5, "vless" to 5,
+        "trojan" to 4, "hysteria2" to 3, "tuic" to 2
+    )
+
     private fun order(alive: List<Node>, cfg: PipelineConfig): List<Node> {
         val list = ArrayList<Node>()
         for (n in alive) {
@@ -323,6 +332,36 @@ object Pipeline {
         for (n in rest) {
             if (result.size >= cfg.keepTop) break
             result.add(n)
+        }
+
+        // 按协议保底：从存活池里补，缺哪类补哪类（不重复、不超 keepTop）
+        val chosen = HashSet(result.map { keyOf(it) })
+        val extra = ArrayList<Node>()
+        val byType = list.sortedWith(
+            compareByDescending<Node> { it.speed }.thenBy {
+                if (it.realDelay > 0) it.realDelay else it.delay
+            }
+        )
+        for ((type, need) in KEEP_PER_TYPE) {
+            var have = result.count { it.type == type } + extra.count { it.type == type }
+            if (have >= need) continue
+            for (n in byType) {
+                if (have >= need) break
+                if (n.type != type) continue
+                val k = keyOf(n)
+                if (!chosen.add(k)) continue
+                extra.add(n)
+                have++
+            }
+        }
+        if (extra.isNotEmpty()) {
+            // 保底条目插在已测速的后面、未测速的前面，整体仍按速度降序
+            val rebuilt = ArrayList<Node>(result.size + extra.size)
+            rebuilt.addAll(result.filter { it.speed > 0 })
+            rebuilt.addAll(extra.sortedByDescending { it.speed })
+            rebuilt.addAll(result.filter { it.speed <= 0 })
+            result.clear()
+            result.addAll(rebuilt)
         }
 
         val out = ArrayList<Node>()

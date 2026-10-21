@@ -1,892 +1,479 @@
 package com.szech.walls
 
-import android.Manifest
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.ContentValues
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.graphics.Typeface
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.MediaStore
-import android.text.InputType
-import android.view.Gravity
+import androidx.annotation.IdRes
+import androidx.navigation.NavOptions
+import android.view.MenuItem
 import android.view.View
-import android.view.ViewGroup
-import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.widget.SwitchCompat
-import androidx.core.content.FileProvider
-import androidx.lifecycle.lifecycleScope
-import com.google.android.material.button.MaterialButton
-import com.szech.walls.core.Log
-import com.szech.walls.export.Formats
-import com.szech.walls.model.Node
-import com.szech.walls.net.Updater
-import com.szech.walls.pipeline.PipelineResult
-import com.szech.walls.pipeline.Runner
-import com.szech.walls.server.SubServer
-import com.szech.walls.server.SubService
-import com.szech.walls.server.SubServiceHolder
+import androidx.core.view.GravityCompat
+import androidx.drawerlayout.widget.DrawerLayout
+import androidx.navigation.NavController
+import androidx.navigation.fragment.NavHostFragment
+import androidx.navigation.ui.NavigationUI
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.navigation.NavigationView
+import com.google.android.material.navigationrail.NavigationRailView
+import com.szech.walls.run.RunController
 import com.szech.walls.store.Prefs
 import com.szech.walls.store.Repo
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.szech.walls.ui.Backup
+import com.szech.walls.ui.QrCode
+import com.szech.walls.ui.PowerHelp
+import com.szech.walls.ui.WallsCmd
+import com.szech.walls.ui.WallsUi
+import com.szech.walls.ui.scan.ScanContract
 
+/**
+ * 外壳：侧栏 / 导航栏 / 底栏 + 一个放页面的容器。
+ *
+ * 导航形态按宽度自动切换，靠的是三份布局文件：
+ *   layout/            手机：底栏两项 + 汉堡抽屉
+ *   layout-sw600dp/    600dp 起：左侧导航栏四项 + 汉堡抽屉
+ *   layout-sw840dp/    840dp 起：侧栏常驻，没有抽屉也没有底栏
+ *
+ * 「顶层目的地」在手机上是概览和节点两项，宽屏上是四项 —— 这样手机上从抽屉进
+ * 订阅 / 设置时顶栏会出返回箭头、底栏隐藏，宽屏上则是正常的一等页面。
+ */
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var statusView: TextView
-    private lateinit var progress: ProgressBar
-    private lateinit var progressText: TextView
-    private lateinit var nodeBox: LinearLayout
-    private lateinit var logView: TextView
-    private lateinit var serviceSwitch: SwitchCompat
-    private lateinit var urlBox: LinearLayout
+    private lateinit var navController: NavController
+    private lateinit var toolbar: MaterialToolbar
+    private lateinit var topLevel: Set<Int>
 
-    private var running = false
+    /** 页面容器，转场动画只动它，不动页面自己 */
+    private var hostView: View? = null
 
-    /** 点了「停止」后置位，流水线在每个工作单元之间检查它 */
-    @Volatile
-    private var cancelRequested = false
-    private var runJob: kotlinx.coroutines.Job? = null
+    private var drawerLayout: DrawerLayout? = null
+    private var navigationView: NavigationView? = null
+    private var bottomBar: View? = null
+    private var bottomNav: BottomNavigationView? = null
+    private var railNav: NavigationRailView? = null
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        Prefs.init(this)
-        Repo.init(this)
-        Log.addListener { line ->
-            runOnUiThread { renderLog() }
-        }
-        setContentView(buildUi())
-        renderAll()
-        if (Repo.nodes.isEmpty()) {
-            Log.add("提示：点「开始更新」就会抓取 + 测速 + 生成订阅。首次运行约 1~3 分钟。")
-        }
-        checkUpdate(manual = false)
-    }
-
-    override fun onResume() {
-        super.onResume()
-        serviceSwitch.isChecked = isServiceRunning()
-        renderUrls()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-    }
-
-    // ================================================================== UI
-
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
-
-    private fun title(text: String, size: Float = 15f): TextView = TextView(this).apply {
-        this.text = text
-        setTextColor(0xFF1B1F24.toInt())
-        textSize = size
-        setTypeface(typeface, Typeface.BOLD)
-        setPadding(0, dp(2), 0, dp(6))
-    }
-
-    private fun dim(text: String, size: Float = 12.5f): TextView = TextView(this).apply {
-        this.text = text
-        setTextColor(0xFF6A737D.toInt())
-        textSize = size
-        setPadding(0, dp(2), 0, dp(2))
-    }
-
-    private fun body(text: String, size: Float = 13.5f): TextView = TextView(this).apply {
-        this.text = text
-        setTextColor(0xFF1B1F24.toInt())
-        textSize = size
-        setPadding(0, dp(2), 0, dp(2))
-    }
-
-    private fun button(text: String, outlined: Boolean = false): MaterialButton =
-        MaterialButton(this).apply {
-            this.text = text
-            textSize = 12.5f
-            minHeight = dp(40)
-            minimumHeight = dp(40)
-            setPadding(dp(8), 0, dp(8), 0)
-            if (outlined) {
-                setBackgroundColor(0x00000000)
-                setStrokeWidth(dp(1))
-                setStrokeColor(android.content.res.ColorStateList.valueOf(0xFF1F6FEB.toInt()))
-                setTextColor(0xFF1F6FEB.toInt())
-            } else {
-                setBackgroundColor(0xFF1F6FEB.toInt())
-                setTextColor(0xFFFFFFFF.toInt())
-            }
-        }
-
-    private fun card(): LinearLayout = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(14), dp(12), dp(14), dp(14))
-        setBackgroundColor(0xFFFFFFFF.toInt())
-        layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            setMargins(dp(10), dp(6), dp(10), dp(4))
-        }
-        elevation = dp(1).toFloat()
-    }
-
-    private fun buildUi(): View {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFFF5F6F8.toInt())
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        }
-
-        // 顶部标题
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(18), dp(16), dp(10))
-            setBackgroundColor(0xFF1F6FEB.toInt())
-        }
-        header.addView(TextView(this).apply {
-            text = "🧱 节点管家"
-            setTextColor(0xFFFFFFFF.toInt())
-            textSize = 20f
-            setTypeface(typeface, Typeface.BOLD)
-        })
-        header.addView(TextView(this).apply {
-            text = "免费节点抓取 · 真实隧道测速 · 按速度排序 · 本地订阅"
-            setTextColor(0xFFD6E4FF.toInt())
-            textSize = 12f
-            setPadding(0, dp(3), 0, 0)
-        })
-        root.addView(header)
-
-        val scroll = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
-            )
-            setPadding(0, 0, 0, dp(20))
-        }
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        scroll.addView(col)
-        root.addView(scroll)
-
-        // ---- 状态卡片 ----
-        val c1 = card()
-        c1.addView(title("运行状态"))
-        statusView = body("尚未运行过")
-        c1.addView(statusView)
-        progressText = dim("")
-        c1.addView(progressText)
-        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progress = 0
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(6)
-            ).apply { setMargins(0, dp(6), 0, dp(4)) }
-            visibility = View.GONE
-        }
-        c1.addView(progress)
-
-        val row1 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(8), 0, 0)
-        }
-        val btnStart = button("开始更新")
-        btnStart.layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply {
-            setMargins(0, 0, dp(6), 0)
-        }
-        btnStart.setOnClickListener { startRun(false) }
-        row1.addView(btnStart)
-
-        val btnQuick = button("快速更新", true)
-        btnQuick.layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply {
-            setMargins(dp(3), 0, dp(3), 0)
-        }
-        btnQuick.setOnClickListener { startRun(true) }
-        row1.addView(btnQuick)
-
-        val btnStop = button("停止", true)
-        btnStop.layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply {
-            setMargins(dp(6), 0, 0, 0)
-        }
-        btnStop.setOnClickListener { requestStop() }
-        row1.addView(btnStop)
-        c1.addView(row1)
-        col.addView(c1)
-
-        // ---- 订阅服务卡片 ----
-        val c2 = card()
-        c2.addView(title("本地订阅服务"))
-        val swRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        swRow.addView(TextView(this).apply {
-            text = "常驻运行（客户端随时可拉取）"
-            textSize = 13.5f
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        })
-        serviceSwitch = SwitchCompat(this).apply {
-            isChecked = isServiceRunning()
-            setOnCheckedChangeListener { _, checked ->
-                if (checked) {
-                    ensureNotifyPermission()
-                    SubService.start(this@MainActivity)
-                    serviceSwitch.postDelayed({ serviceSwitch.isChecked = isServiceRunning() }, 300)
-                } else {
-                    SubService.stop(this@MainActivity)
-                }
-                renderUrls()
-            }
-        }
-        swRow.addView(serviceSwitch)
-        c2.addView(swRow)
-
-        c2.addView(dim("↑ 打开后本地订阅地址才会一直有效；关掉开关即停止。"))
-
-        urlBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(6), 0, 0)
-        }
-        c2.addView(urlBox)
-
-        val rowShare = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(8), 0, 0)
-        }
-        val btnExport = button("导出到下载目录", true)
-        btnExport.layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f)
-        btnExport.setOnClickListener { exportToDownloads() }
-        rowShare.addView(btnExport)
-        c2.addView(rowShare)
-        col.addView(c2)
-
-        // ---- 节点列表卡片 ----
-        val c3 = card()
-        c3.addView(title("节点排名"))
-        c3.addView(dim("按实测下载速度降序。目前能真实测速的协议：Shadowsocks / Trojan / VLESS（tcp 或 ws + tls）。"))
-        nodeBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        c3.addView(nodeBox)
-        col.addView(c3)
-
-        // ---- 设置卡片 ----
-        val c4 = card()
-        c4.addView(title("设置"))
-        val settings = listOf(
-            "订阅端口" to { showNumberDialog("订阅端口", Prefs.port, 1024, 65535) { Prefs.port = it; renderUrls() } },
-            "候选节点上限" to { showNumberDialog("进入测速的候选节点上限", Prefs.maxNodes, 20, 3000) { Prefs.maxNodes = it } },
-            "保留节点数量" to { showNumberDialog("最终保留多少个节点", Prefs.keepTop, 5, 500) { Prefs.keepTop = it } },
-            "测速节点数量" to { showNumberDialog("做下载测速的节点个数", Prefs.speedTop, 0, 300) { Prefs.speedTop = it } },
-            "每个节点测速流量(KB)" to {
-                showNumberDialog("每个节点下载多少流量（KB）。40 个节点 × 512KB ≈ 20MB 流量", Prefs.speedBytesKb, 64, 4096) { Prefs.speedBytesKb = it }
-            },
-            "最低合格速度(0.1MB/s)" to {
-                showNumberDialog("低于该速度的节点被过滤（单位 0.1 MB/s）", Prefs.minSpeedTenths, 0, 100) { Prefs.minSpeedTenths = it }
-            },
-            "只保留可实测协议的节点" to { toggleBool("只保留可实测协议的节点") { Prefs.measurableOnly = it } },
-            "节点名加上速度前缀" to { toggleBool("节点名加上速度前缀") { Prefs.labelSpeed = it } },
-            "每天自动更新" to { toggleBool("每天自动更新") { Prefs.autoDaily = it; Runner.schedule(this, it) } },
-            "编辑订阅源" to { showSourcesDialog() },
-            "检查更新" to { checkUpdate(manual = true) }
-        )
-        for ((label, action) in settings) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(6), 0, dp(6))
-            }
-            row.addView(TextView(this).apply {
-                text = label
-                textSize = 13.5f
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            })
-            row.addView(TextView(this).apply {
-                text = settingValue(label)
-                textSize = 13f
-                setTextColor(0xFF6A737D.toInt())
-                setPadding(0, 0, dp(8), 0)
-            })
-            row.addView(TextView(this).apply {
-                text = "›"
-                textSize = 20f
-                setTextColor(0xFF9AA0A6.toInt())
-            })
-            row.isClickable = true
-            row.setOnClickListener { action(); renderAll() }
-            c4.addView(row)
-        }
-        col.addView(c4)
-
-        // ---- 日志卡片 ----
-        val c5 = card()
-        c5.addView(title("运行日志"))
-        logView = TextView(this).apply {
-            textSize = 11.5f
-            typeface = Typeface.MONOSPACE
-            setTextColor(0xFF37474F.toInt())
-            setTextIsSelectable(true)
-        }
-        c5.addView(logView)
-        col.addView(c5)
-
-        renderUrls()
-        renderLog()
-        return root
-    }
-
-    private fun settingValue(label: String): String = when (label) {
-        "订阅端口" -> Prefs.port.toString()
-        "候选节点上限" -> Prefs.maxNodes.toString()
-        "保留节点数量" -> Prefs.keepTop.toString()
-        "测速节点数量" -> Prefs.speedTop.toString()
-        "每个节点测速流量(KB)" -> "${Prefs.speedBytesKb} KB"
-        "最低合格速度(0.1MB/s)" -> "${Prefs.minSpeedTenths / 10.0} MB/s"
-        "只保留可实测协议的节点" -> if (Prefs.measurableOnly) "开" else "关"
-        "节点名加上速度前缀" -> if (Prefs.labelSpeed) "开" else "关"
-        "每天自动更新" -> if (Prefs.autoDaily) "开" else "关"
-        "编辑订阅源" -> "${Prefs.sources.size} 个"
-        "检查更新" -> "v" + currentVersion().first
-        else -> ""
-    }
-
-    // =============================================================== 渲染
-
-    private fun renderAll() {
-        renderStatus()
-        renderUrls()
-        renderNodes()
-        renderLog()
-    }
-
-    private fun fmtTime(ts: Long): String =
-        if (ts <= 0) "从未" else SimpleDateFormat(
-            "yyyy-MM-dd HH:mm:ss", Locale.getDefault()
-        ).format(Date(ts))
-
-    private fun renderStatus() {
-        val s = Repo.status
-        val ss = Repo.nodes.count { it.type == "ss" }
-        statusView.text = buildString {
-            append("上次更新：").append(fmtTime(s.lastRunAt)).append('\n')
-            append("当前可用节点：").append(Repo.nodes.size).append(" 个（Shadowsocks ").append(ss).append(" 个）\n")
-            append("候选 ").append(s.candidates)
-                .append(" · 存活 ").append(s.alive)
-                .append(" · 实测 ").append(s.measured)
-                .append(" · 源 ").append(s.sourcesOk).append('/').append(s.sourcesOk + s.sourcesFail)
-            if (s.message.isNotEmpty()) append('\n').append(s.message)
+    private val scanLauncher = registerForActivityResult(ScanContract()) { content ->
+        if (!content.isNullOrBlank()) {
+            QrCode.handleScan(this, content) { refreshPages() }
         }
     }
 
-    private fun renderUrls() {
-        if (!::urlBox.isInitialized) return
-        urlBox.removeAllViews()
-        val on = isServiceRunning()
-        for ((path, desc, _) in SubServer.INDEX_ROUTES) {
-            if (path.startsWith("/api")) continue
-            val url = "http://127.0.0.1:${Prefs.port}$path"
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(0, dp(6), 0, dp(6))
-            }
-            val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            head.addView(TextView(this).apply {
-                text = path
-                textSize = 13.5f
-                setTypeface(typeface, Typeface.BOLD)
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            })
-            val bCopy = button("复制", true).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(58), dp(34))
-                textSize = 12f
-                minHeight = dp(34)
-                setOnClickListener { copy(url, "已复制 $path") }
-            }
-            val bOpen = button("打开", true).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(58), dp(34))
-                textSize = 12f
-                minHeight = dp(34)
-                setOnClickListener {
-                    try {
-                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                    } catch (e: Exception) {
-                        toast("打不开：${e.message}")
-                    }
-                }
-            }
-            head.addView(bCopy)
-            head.addView(bOpen)
-            row.addView(head)
-            row.addView(TextView(this).apply {
-                text = url
-                textSize = 12f
-                setTextColor(if (on) 0xFF1F6FEB.toInt() else 0xFF9AA0A6.toInt())
-                setTextIsSelectable(true)
-            })
-            row.addView(TextView(this).apply {
-                text = desc
-                textSize = 11.5f
-                setTextColor(0xFF6A737D.toInt())
-            })
-            urlBox.addView(row)
-        }
-        urlBox.addView(TextView(this).apply {
-            text = if (on) "✓ 服务运行中：把 http://127.0.0.1:${Prefs.port}/sip008 填进 Shadowsocks 的「订阅」即可。"
-            else "✗ 服务未启动：打开上面的开关，客户端才能拉到订阅。"
-            textSize = 12.5f
-            setTextColor(if (on) 0xFF1B7F3B.toInt() else 0xFFB3261E.toInt())
-            setPadding(0, dp(8), 0, 0)
-        })
-    }
-
-    private fun renderNodes() {
-        if (!::nodeBox.isInitialized) return
-        nodeBox.removeAllViews()
-        if (Repo.nodes.isEmpty()) {
-            nodeBox.addView(dim("还没有节点，点上面的「开始更新」。"))
-            return
-        }
-        for ((i, n) in Repo.nodes.withIndex()) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(0, dp(7), 0, dp(7))
-            }
-            val l1 = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            l1.addView(TextView(this).apply {
-                text = "${i + 1}"
-                textSize = 13f
-                setTextColor(0xFF9AA0A6.toInt())
-                width = dp(26)
-            })
-            l1.addView(TextView(this).apply {
-                text = n.name
-                textSize = 13f
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            })
-            l1.addView(TextView(this).apply {
-                text = buildString {
-                    append(if (n.speed > 0) String.format("%.2fMB/s", n.speed) else "—")
-                    append("  ")
-                    append(if (n.realDelay > 0) "${n.realDelay}ms" else if (n.delay > 0) "${n.delay}ms" else "")
-                }
-                textSize = 12f
-                setTextColor(0xFF1B7F3B.toInt())
-            })
-            row.addView(l1)
-            row.addView(TextView(this).apply {
-                text = "${n.type} · ${n.server}:${n.port}" + if (n.note.isNotEmpty()) " · ${n.note}" else ""
-                textSize = 11f
-                setTextColor(0xFF6A737D.toInt())
-            })
-            row.setBackgroundColor(0xFFFFFFFF.toInt())
-            row.isClickable = true
-            row.setOnClickListener { showNodeDialog(n) }
-            nodeBox.addView(row)
-            nodeBox.addView(View(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
-                )
-                setBackgroundColor(0xFFEEF1F4.toInt())
-            })
-        }
-    }
-
-    private fun renderLog() {
-        if (!::logView.isInitialized) return
-        val lines = Log.snapshot()
-        logView.text = lines.takeLast(80).joinToString("\n").ifEmpty { "（暂无日志）" }
-    }
-
-    // =============================================================== 动作
-
-    private fun startRun(quick: Boolean) {
-        if (running) {
-            toast("正在运行中，请稍候")
-            return
-        }
-        running = true
-        cancelRequested = false
-        progress.visibility = View.VISIBLE
-        progress.progress = 0
-        progressText.text = "准备中…"
-        if (quick) Prefs.quick = true else Prefs.quick = false
-        Log.add(if (quick) "=== 开始快速更新（只测 TCP 延迟）===" else "=== 开始完整更新（抓取 + 实测测速）===")
-        runJob = lifecycleScope.launch {
-            val res: PipelineResult = withContext(Dispatchers.IO) {
-                try {
-                    Runner.runNow(
-                        onLog = { Log.add(it) },
-                        onProgress = { stage, done, total ->
-                            runOnUiThread {
-                                progressText.text = "$stage $done/$total"
-                                progress.progress = if (total > 0) done * 100 / total else 0
-                            }
-                        },
-                        isCancelled = { cancelRequested }
-                    )
-                } catch (e: Exception) {
-                    Log.add("出错：${e.message}")
-                    PipelineResult(emptyList(), 0, 0, 0, 0, 0, 0)
-                }
-            }
-            running = false
-            runJob = null
-            progress.visibility = View.GONE
-            progressText.text = ""
-            when {
-                res.cancelled -> {
-                    Log.add("=== 已停止 ===")
-                    toast("已停止，保留上次结果")
-                }
-                res.nodes.isEmpty() -> {
-                    Log.add("=== 结束：没有可用节点 ===")
-                    toast("没有抓到可用节点，保留上次结果")
-                }
-                else -> {
-                    Log.add("=== 结束：入选 ${res.nodes.size} 个节点 ===")
-                    toast("完成，共 ${res.nodes.size} 个节点")
-                }
-            }
-            renderAll()
-        }
-    }
-
-    /**
-     * 协作式停止：不直接杀协程，只置标志位。
-     * 流水线在每个节点、每个阶段之间检查它，所以一般一两秒内就会干净收尾，
-     * 不会留下没关掉的 socket。
-     */
-    private fun requestStop() {
-        if (!running) {
-            toast("当前没有任务在跑")
-            return
-        }
-        cancelRequested = true
-        progressText.text = "正在停止…"
-        Log.add("已请求停止，等待正在测的节点收尾…")
-    }
-
-    private fun isServiceRunning(): Boolean {
-        return try {
-            val svc = SubServiceHolder.instance
-            svc?.isRunning() ?: false
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    private fun showNodeDialog(n: Node) {
-        val link = if (n.type == "ss") Formats.ssUri(n) else Formats.v2rayUri(n)
-        val info = buildString {
-            append("名称：").append(n.name).append('\n')
-            append("类型：").append(n.type).append('\n')
-            append("地址：").append(n.server).append(':').append(n.port).append('\n')
-            if (n.cipher.isNotEmpty()) append("加密：").append(n.cipher).append('\n')
-            if (n.speed > 0) append("实测速度：").append(String.format("%.2f MB/s", n.speed)).append('\n')
-            if (n.realDelay > 0) append("实测延迟：").append(n.realDelay).append(" ms\n")
-            if (n.delay > 0) append("TCP 延迟：").append(n.delay).append(" ms\n")
-            if (n.note.isNotEmpty()) append("备注：").append(n.note).append('\n')
-        }
-        val dlg = AlertDialog.Builder(this)
-            .setTitle("节点详情")
-            .setMessage(info + "\n" + (link ?: ""))
-            .setPositiveButton("复制分享链接") { _, _ -> link?.let { copy(it, "已复制分享链接") } }
-            .setNegativeButton("关闭", null)
-            .create()
-        dlg.show()
-    }
-
-    private fun toggleBool(label: String, set: (Boolean) -> Unit) {
-        val cur = when (label) {
-            "只保留可实测协议的节点" -> Prefs.measurableOnly
-            "节点名加上速度前缀" -> Prefs.labelSpeed
-            "每天自动更新" -> Prefs.autoDaily
-            else -> false
-        }
-        AlertDialog.Builder(this)
-            .setTitle(label)
-            .setSingleChoiceItems(arrayOf("开", "关"), if (cur) 0 else 1) { d, which ->
-                set(which == 0)
-                d.dismiss()
-                renderAll()
-            }
-            .show()
-    }
-
-    private fun showNumberDialog(label: String, cur: Int, min: Int, max: Int, set: (Int) -> Unit) {
-        val edit = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setText(cur.toString())
-            setSelection(text.length)
-        }
-        AlertDialog.Builder(this)
-            .setTitle(label)
-            .setView(edit)
-            .setPositiveButton("确定") { _, _ ->
-                val v = edit.text.toString().toIntOrNull()
-                if (v == null || v < min || v > max) {
-                    toast("请输入 $min ~ $max 之间的整数")
-                } else {
-                    set(v)
-                }
-                renderAll()
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
-    private fun showSourcesDialog() {
-        val edit = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            setText(Prefs.sources.joinToString("\n"))
-            minLines = 8
-            gravity = Gravity.TOP or Gravity.START
-            textSize = 12f
-        }
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(8), dp(16), dp(8))
-            addView(TextView(this@MainActivity).apply {
-                text = "每行一个订阅链接；末尾加 #type=list 表示这是订阅合集页（会自动展开里面的订阅）。"
-                textSize = 12f
-                setTextColor(0xFF6A737D.toInt())
-            })
-            addView(edit)
-        }
-        AlertDialog.Builder(this)
-            .setTitle("编辑订阅源")
-            .setView(box)
-            .setPositiveButton("保存") { _, _ ->
-                Prefs.sources = edit.text.toString().split('\n')
-                toast("已保存 ${Prefs.sources.size} 个源")
-                renderAll()
-            }
-            .setNeutralButton("恢复默认") { _, _ ->
-                Prefs.resetSources()
-                renderAll()
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
-    // =============================================================== 自动更新
-
-    /** 本机版本：versionName 与 versionCode */
-    private fun currentVersion(): Pair<String, Int> {
-        return try {
-            val pi = packageManager.getPackageInfo(packageName, 0)
-            val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                pi.longVersionCode.toInt()
-            } else {
-                pi.versionCode
-            }
-            Pair(pi.versionName ?: "?", code)
-        } catch (e: Exception) {
-            Pair("?", 0)
-        }
-    }
-
-    private fun checkUpdate(manual: Boolean) {
-        lifecycleScope.launch {
-            val (curName, curCode) = currentVersion()
-            val info = withContext(Dispatchers.IO) { Updater.fetchLatest() }
-            if (info == null) {
-                if (manual) toast("检查更新失败：拿不到版本信息（网络问题？）")
-                return@launch
-            }
-            if (!Updater.isNewer(info, curName, curCode)) {
-                Log.add("检查更新：已是最新版 v$curName")
-                if (manual) toast("已是最新版本 v$curName")
-                return@launch
-            }
-            Log.add("发现新版本 v${info.versionName}（当前 v$curName）")
-            val sizeText = if (info.size > 0) String.format("%.1f MB", info.size / 1048576.0) else "未知大小"
-            val msg = buildString {
-                append("当前版本：v").append(curName).append('\n')
-                append("最新版本：v").append(info.versionName).append("（").append(sizeText).append("）\n")
-                if (info.publishedAt.isNotEmpty()) append("发布时间：").append(info.publishedAt).append('\n')
-                if (info.notes.isNotEmpty()) append('\n').append(info.notes)
-            }
-            AlertDialog.Builder(this@MainActivity)
-                .setTitle("发现新版本")
+    private val restoreLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val msg = Backup.restore(this, uri)
+            MaterialAlertDialogBuilder(this)
+                .setTitle("恢复备份")
                 .setMessage(msg)
-                .setPositiveButton("下载并安装") { _, _ -> downloadAndInstall(info) }
-                .setNegativeButton("稍后", null)
+                .setPositiveButton("好") { _, _ -> recreate() }
                 .show()
         }
     }
 
-    private fun downloadAndInstall(info: Updater.Release) {
-        val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progress = 0
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(6)
-            ).apply { setMargins(dp(20), dp(10), dp(20), 0) }
-        }
-        val tip = TextView(this).apply {
-            text = "正在下载 v${info.versionName}…"
-            textSize = 13f
-            setPadding(dp(20), dp(10), dp(20), dp(4))
-        }
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(tip)
-            addView(bar)
-        }
-        val dlg = AlertDialog.Builder(this)
-            .setTitle("下载更新")
-            .setView(box)
-            .setCancelable(false)
-            .setNegativeButton("取消", null)
-            .create()
-        dlg.show()
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-        lifecycleScope.launch {
-            val file = withContext(Dispatchers.IO) {
-                Updater.download(this@MainActivity, info, onProgress = { done, total ->
-                    val pct = if (total > 0) (done * 100 / total).toInt() else 0
-                    runOnUiThread {
-                        bar.progress = pct
-                        tip.text = if (total > 0) {
-                            "正在下载 v${info.versionName}… ${pct}%（${done / 1048576} / ${total / 1048576} MB）"
-                        } else {
-                            "正在下载 v${info.versionName}… ${done / 1048576} MB"
-                        }
-                    }
-                })
-            }
-            dlg.dismiss()
-            if (file == null) {
-                Log.add("下载更新失败")
-                toast("下载失败，可稍后再试")
-                return@launch
-            }
-            Log.add("更新包已下载：${file.name}")
-            if (!Updater.canInstall(this@MainActivity)) {
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("还差一步")
-                    .setMessage("系统需要你允许「节点管家」安装应用。点确定去设置里打开这个开关，然后回到本页再点一次「检查更新」。")
-                    .setPositiveButton("去设置") { _, _ -> Updater.openInstallPermissionSettings(this@MainActivity) }
-                    .setNegativeButton("取消", null)
-                    .show()
-                return@launch
-            }
-            val err = Updater.install(this@MainActivity, file)
-            if (err != null) {
-                Log.add("调起安装失败：$err")
-                toast("调起安装失败：$err")
-            } else {
-                toast("已调起系统安装器，按提示覆盖安装即可")
-            }
+        val host = supportFragmentManager
+            .findFragmentById(R.id.nav_host) as NavHostFragment
+        navController = host.navController
+
+        toolbar = findViewById(R.id.toolbar)
+        drawerLayout = findViewById(R.id.drawer_layout)
+        navigationView = findViewById(R.id.drawer_nav)
+        bottomBar = findViewById(R.id.bottom_bar)
+        bottomNav = findViewById(R.id.bottom_nav)
+        railNav = findViewById(R.id.rail_nav)
+
+        val wide = resources.configuration.smallestScreenWidthDp >= 600
+        topLevel = if (wide) {
+            setOf(
+                R.id.overviewFragment, R.id.nodesFragment,
+                R.id.exportFragment, R.id.settingsFragment
+            )
+        } else {
+            setOf(R.id.overviewFragment, R.id.nodesFragment, R.id.exportFragment)
         }
-    }
 
-    private fun copy(text: String, tip: String) {
-        try {
-            val cm = getSystemService(ClipboardManager::class.java)
-            cm.setPrimaryClip(ClipData.newPlainText("walls", text))
-            toast(tip)
-        } catch (e: Exception) {
-            toast("复制失败：${e.message}")
-        }
-    }
-
-    private fun toast(msg: String) {
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-    }
-
-    private fun ensureNotifyPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
-            }
-        }
-    }
-
-    /** 把各种格式的文件写进「下载」目录，方便用别的 App 导入 */
-    private fun exportToDownloads() {
-        val items = listOf(
-            Triple("ss-明文.txt", Formats.plainSs(Repo.nodes), "text/plain"),
-            Triple("ss-订阅-base64.txt", Formats.base64Ss(Repo.nodes), "text/plain"),
-            Triple("sip008.json", Formats.sip008(Repo.nodes), "application/json"),
-            Triple("clash.yaml", Formats.clashYaml(Repo.nodes, "(按速度排序)"), "text/yaml"),
-            Triple("v2ray-订阅.txt", Formats.base64AllLinks(Repo.nodes), "text/plain"),
-            Triple("全协议-明文.txt", Formats.plainAllLinks(Repo.nodes), "text/plain"),
-            Triple("report.md", Formats.reportMd(Repo.nodes, "节点测速报告"), "text/markdown")
-        )
-        try {
-            for ((name, content, mime) in items) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val values = ContentValues().apply {
-                        put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-                        put(MediaStore.MediaColumns.MIME_TYPE, mime)
-                        put(
-                            MediaStore.MediaColumns.RELATIVE_PATH,
-                            Environment.DIRECTORY_DOWNLOADS + "/Walls"
-                        )
-                    }
-                    val uri = contentResolver.insert(
-                        MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
-                    )
-                    if (uri != null) {
-                        contentResolver.openOutputStream(uri)?.use {
-                            it.write(content.toByteArray(Charsets.UTF_8))
-                        }
-                    }
+        // 底栏的选中态交给 NavigationUI 同步，点击事件自己接管。
+        //
+        // 这里踩过一个坑：NavigationUI 更新选中态用的是 MenuItem.setChecked()，
+        // 不一定会同步底栏自己的 selectedItemId，于是「当前选中项」和「实际页面」会错开；
+        // 错开之后用户点那个看起来没选中、其实内部仍被记成选中的项，Material 直接当成
+        // 重复点击吞掉，页面就停在原地（表现为「点概览没反应，只在当前页刷新」）。
+        // 所以点击一律走我们自己的 navTo()，不看组件内部状态。
+        bottomNav?.let { nav ->
+            NavigationUI.setupWithNavController(nav, navController)
+            nav.setOnItemSelectedListener { item ->
+                val id = item.itemId
+                if (navController.graph.findNode(id) != null) {
+                    navTo(id, topLevel = true)
+                    true
                 } else {
-                    val dir = File(
-                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                        "Walls"
-                    )
-                    dir.mkdirs()
-                    File(dir, name).writeText(content)
+                    false
                 }
             }
-            toast("已导出到 下载/Walls/")
-            Log.add("已导出 ${items.size} 个文件到 下载/Walls/")
-        } catch (e: Exception) {
-            toast("导出失败：${e.message}")
+            // 万一组件内部把「选中项」记成了这一项（页面却不是它），
+            // 点击会走「重复点击」这条分支，onItemSelected 根本不触发。
+            // 这里同样接住：重新导一次航，页面和选中态就对齐了。
+            nav.setOnItemReselectedListener { item ->
+                val id = item.itemId
+                if (navController.currentDestination?.id != id &&
+                    navController.graph.findNode(id) != null
+                ) {
+                    navTo(id, topLevel = true)
+                }
+            }
+        }
+
+        // 侧栏与导航栏：选中态交给 NavigationUI 同步，点击事件自己接管，
+        // 因为菜单里混了「扫码导入」这类不是目的地的动作项。
+        navigationView?.let { nav ->
+            NavigationUI.setupWithNavController(nav, navController)
+            nav.setNavigationItemSelectedListener { item -> handleMenu(item, fromDrawer = true) }
+        }
+        railNav?.setOnItemSelectedListener { item -> handleMenu(item, fromDrawer = false) }
+
+        hostView = findViewById(R.id.nav_host)
+        navController.addOnDestinationChangedListener { _, destination, _ ->
+            try {
+                com.szech.walls.core.Log.add(
+                    "页面 -> " + resources.getResourceEntryName(destination.id) +
+                        if (RunController.running) "（运行中）" else ""
+                )
+            } catch (e: Exception) {
+                // ignore
+            }
+            syncNav(destination.id)
+            animateContentIn()
+        }
+        syncNav(navController.currentDestination?.id ?: R.id.overviewFragment)
+
+        // 侧栏头是固定在顶上的（不跟着菜单滚），所以直接从布局里找
+        // 收起按钮：常驻侧栏的模式下没有抽屉可收，藏掉
+        findViewById<android.widget.ImageButton>(R.id.drawer_close)?.apply {
+            visibility = if (drawerLayout == null) View.GONE else View.VISIBLE
+            setOnClickListener { drawerLayout?.closeDrawer(GravityCompat.START) }
+        }
+
+        // Android 13+ 要用户点头才给发通知；前台服务的进度条也靠它
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 41)
+        }
+
+        // 启动时静默检查一次更新（发现有新版才弹窗）
+        WallsCmd.checkUpdate(this, this, manual = false)
+
+        updateDrawerHeader()
+
+        // 第一次进来问一次「要不要允许后台运行」，之后不再主动打扰；
+        // 想复查去设置里那一条。
+        if (!Prefs.powerAsked) {
+            window.decorView.post { PowerHelp.ask(this) }
         }
     }
 
-    /** 分享文本文件 */
-    @Suppress("unused")
-    private fun share(name: String, content: String, mime: String) {
-        try {
-            val f = Repo.fileOf("export/$name")
-            f.writeText(content)
-            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
-            val i = Intent(Intent.ACTION_SEND).apply {
-                type = mime
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(i, "分享订阅"))
+    override fun onResume() {
+        super.onResume()
+        updateDrawerHeader()
+        // 兜底：任何情况下回到前台都保证容器是可见的
+        hostView?.apply {
+            animate().cancel()
+            alpha = 1f
+            translationY = 0f
+        }
+    }
+
+    /**
+     * 页面切换的转场：只对容器做一次「淡入 + 轻微上浮」。
+     *
+     * 之前是给每个页面挂 Fragment 的 setCustomAnimations，alpha 从 0 动画到 1；
+     * 手指点得快时上一段动画被打断，页面就永久停在 alpha=0，只剩顶栏标题。
+     *
+     * 现在换一种写法，把「最后一定是可见的」写死：
+     *   - 动画对象是常驻的容器，不是即将被销毁的页面视图；
+     *   - 每次开始前先 cancel()，再显式把目标值设成 1；
+     *   - withEndAction 里再兜一次 alpha=1、translationY=0；
+     *   - onResume 里还会再复位一次。
+     * 就算动画被系统掐掉，也不会留在一个看不见的状态。
+     */
+    private fun animateContentIn() {
+        val v = hostView ?: return
+        // 用户关掉了系统动画就别硬来
+        val scale = try {
+            android.provider.Settings.Global.getFloat(
+                contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f
+            )
         } catch (e: Exception) {
-            toast("分享失败：${e.message}")
+            1f
+        }
+        if (scale == 0f) {
+            v.alpha = 1f
+            v.translationY = 0f
+            return
+        }
+        val dy = 12 * resources.displayMetrics.density
+        v.animate().cancel()
+        v.alpha = 0f
+        v.translationY = dy
+        v.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(200)
+            .setInterpolator(android.view.animation.DecelerateInterpolator())
+            .withEndAction {
+                v.alpha = 1f
+                v.translationY = 0f
+            }
+            .start()
+        // 兜底：主线程被别的活占住、动画没跑完时，300ms 后强行恢复可见。
+        // 宁可少一段过渡，也不能让用户对着一片空白。
+        v.postDelayed({
+            if (v.alpha < 1f || v.translationY != 0f) {
+                v.animate().cancel()
+                v.alpha = 1f
+                v.translationY = 0f
+            }
+        }, 300)
+    }
+
+    private fun updateDrawerHeader() {
+        findViewById<TextView>(R.id.drawer_version)
+            ?.text = "v${WallsCmd.currentVersion(this).first} · ${Repo.nodes.size} 个节点"
+    }
+
+    /** 数据被改动后，让当前页面重画一遍 */
+    private fun refreshPages() {
+        val nav = supportFragmentManager.findFragmentById(R.id.nav_host)
+        val current = nav?.childFragmentManager?.primaryNavigationFragment
+        if (current is com.szech.walls.ui.WallsPageFragment) current.refresh()
+        updateDrawerHeader()
+    }
+
+    /** 菜单点击：是目的地就导航，不是就交给各自的动作 */
+    private fun handleMenu(item: MenuItem, fromDrawer: Boolean): Boolean {
+        when (item.itemId) {
+            R.id.action_open_drawer -> {
+                drawerLayout?.openDrawer(GravityCompat.START)
+                return true
+            }
+            R.id.action_scan_import -> {
+                closeDrawer(fromDrawer)
+                scanLauncher.launch(Unit)
+                return true
+            }
+            R.id.action_backup -> {
+                closeDrawer(fromDrawer)
+                showBackupDialog()
+                return true
+            }
+            R.id.action_edit_sources -> {
+                closeDrawer(fromDrawer)
+                WallsCmd.showSourcesDialog(this) { refreshPages() }
+                return true
+            }
+            R.id.action_check_update -> {
+                closeDrawer(fromDrawer)
+                WallsCmd.checkUpdate(this, this, manual = true)
+                return true
+            }
+            R.id.action_github -> {
+                closeDrawer(fromDrawer)
+                WallsCmd.openUrl(this, WallsCmd.GITHUB_URL)
+                return true
+            }
+            R.id.action_about -> {
+                closeDrawer(fromDrawer)
+                navWithFade(R.id.aboutFragment)
+                return true
+            }
+            R.id.action_guide -> {
+                closeDrawer(fromDrawer)
+                navWithFade(R.id.guideFragment)
+                return true
+            }
+            R.id.action_export_all -> {
+                closeDrawer(fromDrawer)
+                showExportSheet()
+                return true
+            }
+        }
+        val id = item.itemId
+        if (navController.graph.findNode(id) != null) {
+            closeDrawer(fromDrawer)
+            navTo(id, topLevel = id in topLevel)
+            return true
+        }
+        return false
+    }
+
+    private fun closeDrawer(fromDrawer: Boolean) {
+        if (fromDrawer) drawerLayout?.closeDrawer(GravityCompat.START)
+    }
+
+    /**
+     * 二级页面跳转。
+     *
+     * 原来这里挂了一套「淡入 + 轻微放大」的自定义动画，结果是：手指点得快的时候，
+     * 上一段动画被后一次导航打断，进场页的 alpha 卡在 0，于是只剩顶栏标题、内容一片空白，
+     * 点哪儿都没反应，只能杀进程重进。这类 bug 只在真机上偶发，测试很难抓到。
+     *
+     * 现在改成不带动画的普通导航 + launchSingleTop：
+     * 少一点花哨，换「点哪儿就一定出得来」。要动画就等这套导航换回 Compose 再说。
+     */
+    /**
+     * 统一的跳转入口。
+     *
+     * - 已经在目标页就什么都不做（不会白跑一次重建）；
+     * - 顶层页面用 popUpTo(起始页) + launchSingleTop，来回点不会把返回栈堆高；
+     * - 二级页面（关于 / 指南）直接压栈，返回时还回上一页。
+     */
+    private fun navTo(@IdRes id: Int, topLevel: Boolean) {
+        if (navController.currentDestination?.id == id) return
+        val opts = NavOptions.Builder().setLaunchSingleTop(true)
+        if (topLevel) {
+            opts.setPopUpTo(navController.graph.startDestinationId, false)
+        }
+        try {
+            navController.navigate(id, null, opts.build())
+        } catch (e: Exception) {
+            // 目标不是这个图里的页面之类，忽略，别把 App 带崩
+        }
+    }
+
+    private fun navWithFade(@IdRes id: Int) {
+        if (navController.currentDestination?.id == id) return
+        navController.navigate(
+            id, null,
+            NavOptions.Builder()
+                .setLaunchSingleTop(true)
+                .build()
+        )
+    }
+
+    /** 导出全部格式：先弹一个底部弹层把七种格式摆出来，想全导还是单导都行 */
+    private fun showExportSheet() {
+        val ui = WallsUi(this)
+        val items = WallsCmd.exportItems(Repo.nodes, WallsCmd.stamp())
+        if (items.isEmpty()) {
+            WallsCmd.toast(this, "还没有节点可导出，先跑一次更新吧")
+            return
+        }
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, ui.dp(12))
+        }
+        col.addView(ui.label("导出全部格式", R.style.TextAppearance_Walls_CardTitle).apply {
+            setPadding(ui.dp(24), ui.dp(20), ui.dp(24), ui.dp(4))
+        })
+        col.addView(ui.label(
+            "文件写到「下载/Walls/」，点一条只导这一份。",
+            R.style.TextAppearance_Walls_Caption
+        ).apply { setPadding(ui.dp(24), 0, ui.dp(24), ui.dp(10)) })
+
+        val card = ui.card(col, 0, "")
+        items.forEachIndexed { i, (name, content, mime) ->
+            if (i > 0) ui.divider(card)
+            card.addView(
+                ui.tile(
+                    icon = R.drawable.ic_description,
+                    title = name,
+                    sub = describe(name),
+                    chevron = true,
+                    onClick = {
+                        val written = WallsCmd.writeToDownloads(this, name, content, mime)
+                        WallsCmd.toast(
+                            this,
+                            if (written != null) "已导出 下载/Walls/$written" else "导出失败"
+                        )
+                    }
+                )
+            )
+        }
+        col.addView(ui.space(ui.dp(14)))
+        val btn = ui.button(
+            "全部导出到下载目录", R.style.ThemeOverlay_Walls_Button, R.drawable.ic_download
+        ) {
+            WallsCmd.exportToDownloads(this, Repo.nodes)
+        }
+        btn.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { setMargins(ui.dp(16), 0, ui.dp(16), 0) }
+        col.addView(btn)
+
+        val scroll = android.widget.ScrollView(this).apply { addView(col) }
+        com.google.android.material.bottomsheet.BottomSheetDialog(this)
+            .apply { setContentView(scroll) }
+            .show()
+    }
+
+    private fun describe(name: String): String = when {
+        name.startsWith("clash") -> "Clash / mihomo 用的，Clash Verge、FlClash、NekoBox 都吃这个"
+        name.startsWith("v2ray") -> "v2rayNG、v2rayN 的通用订阅（base64）"
+        name.startsWith("sip008") -> "Shadowsocks 官方 JSON 订阅格式"
+        name.startsWith("ss-plain") -> "ss:// 一行一个，复制粘贴就能导入"
+        name.startsWith("ss-base64") -> "shadowsocks-android 的「订阅」那一栏填这个"
+        name.startsWith("all-links") -> "所有协议的分享链接，明文，一行一个"
+        name.startsWith("report") -> "测速报告，Markdown 格式"
+        else -> ""
+    }
+
+    private fun showBackupDialog() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("备份与恢复")
+            .setMessage(
+                "备份内容：11 项设置、订阅源清单、当前节点池（含测速结果）。\n" +
+                    "文件写到「下载/Walls/」，恢复时从文件读回来。"
+            )
+            .setPositiveButton("导出备份") { _, _ ->
+                val name = Backup.export(this)
+                WallsCmd.toast(this, if (name != null) "已导出 $name" else "导出失败")
+            }
+            .setNeutralButton("从文件恢复") { _, _ ->
+                restoreLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /** 换页时同步顶栏图标、底栏显隐、三套导航的选中态 */
+    private fun syncNav(destinationId: Int) {
+        val isTop = destinationId in topLevel
+        when {
+            isTop && drawerLayout != null -> {
+                toolbar.setNavigationIcon(R.drawable.ic_menu)
+                toolbar.setNavigationOnClickListener { drawerLayout?.openDrawer(GravityCompat.START) }
+            }
+            !isTop -> {
+                toolbar.setNavigationIcon(R.drawable.ic_arrow_back)
+                toolbar.setNavigationOnClickListener { navController.navigateUp() }
+            }
+            else -> {
+                // 840dp 起的常驻侧栏：顶层页面不需要任何导航图标
+                toolbar.navigationIcon = null
+                toolbar.setNavigationOnClickListener(null)
+            }
+        }
+        bottomBar?.visibility = if (isTop && bottomNav != null) View.VISIBLE else View.GONE
+        navigationView?.setCheckedItem(destinationId)
+
+        // 把底栏内部的「选中项」跟真正的目的地对齐。
+        // NavigationUI 只 setChecked(true)，不一定改 selectedItemId；一旦错开，
+        // 下一次点击就会被当成重复点击吞掉。放到 post 里做，避开导航中的重入。
+        bottomNav?.let { bar ->
+            if (bar.menu.findItem(destinationId) != null && bar.selectedItemId != destinationId) {
+                bar.post {
+                    if (bar.selectedItemId != destinationId) bar.selectedItemId = destinationId
+                }
+            }
         }
     }
 }

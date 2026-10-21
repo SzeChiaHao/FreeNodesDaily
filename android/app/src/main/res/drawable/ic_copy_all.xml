@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material Symbols (outlined, 400) - Apache License 2.0, Google LLC -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <group android:translateY="960">
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M120-240v-60h60v60h-60Zm0-160v-60h60v60h-60Zm0-160v-60h60v60h-60ZM280-80v-60h60v60h-60Zm60-160q-24 0-42-18t-18-42v-520q0-24 18-42t42-18h400q24 0 42 18t18 42v520q0 24-18 42t-42 18H340Zm0-60h400v-520H340v520ZM440-80v-60h60v60h-60Zm-260 0q-24.75 0-42.37-17.63Q120-115.25 120-140h60v60Zm420 0v-60h60q0 25-17.62 42.5Q624.75-80 600-80ZM120-720q0-24.75 17.63-42.38Q155.25-780 180-780v60h-60Zm420 160Z" />
+    </group>
+</vector>

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.drawerlayout.widget.DrawerLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawer_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface">
+
+    <!-- 内容区：顶栏 + 页面容器 + 底栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="?attr/colorSurface"
+            app:navigationIconTint="?attr/colorOnSurfaceVariant"
+            app:title="@string/app_name"
+            app:titleTextAppearance="@style/TextAppearance.Walls.Toolbar" />
+
+        <androidx.fragment.app.FragmentContainerView
+            android:id="@+id/nav_host"
+            android:name="androidx.navigation.fragment.NavHostFragment"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            app:defaultNavHost="true"
+            app:navGraph="@navigation/nav_main" />
+
+        <!-- 底栏 + 它上面那道 1dp 分隔线，一起藏一起显 -->
+        <LinearLayout
+            android:id="@+id/bottom_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/md_walls_divider" />
+
+            <com.google.android.material.bottomnavigation.BottomNavigationView
+                android:id="@+id/bottom_nav"
+                style="@style/Widget.Walls.NavigationBar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:menu="@menu/menu_bottom_nav" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!--
+      侧栏：头部固定不动，只有菜单滚 —— 这样滚到哪儿都看得见「节点管家」和右上角的收起键。
+    -->
+    <LinearLayout
+        android:id="@+id/drawer_panel"
+        android:layout_width="272dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:background="?attr/colorSurfaceContainerLow"
+        android:orientation="vertical">
+
+        <include layout="@layout/nav_header" />
+
+        <com.google.android.material.navigation.NavigationView
+            android:id="@+id/drawer_nav"
+            style="@style/Widget.Walls.NavigationView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:overScrollMode="ifContentScrolls"
+            android:paddingBottom="12dp"
+            app:menu="@menu/menu_drawer" />
+    </LinearLayout>
+</androidx.drawerlayout.widget.DrawerLayout>

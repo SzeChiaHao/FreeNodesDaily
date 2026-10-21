@@ -1,7 +1,10 @@
 name: Android
 
-# 只干两件事：单元测试过不过、能不能编出 APK。
-# 不发布、不碰 version.json —— 发布还是走 build-apk.ps1 -Release 那一条。
+# 只干两件事：能不能编出 APK、单元测试过不过。不发布、不碰 version.json。
+# 发布仍然走 build-apk.ps1 -Release。
+#
+# 说明：这里只用 GitHub 官方的 action（checkout / setup-java / upload-artifact），
+# Android SDK 用镜像里预装的那套 + sdkmanager 补装，避免依赖第三方 action 的行为变化。
 
 on:
   push:
@@ -14,12 +17,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-and-build:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: android
+    env:
+      GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
+
     steps:
       - uses: actions/checkout@v4
 
@@ -28,29 +34,44 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: 装 Android SDK（compileSdk 34 / build-tools 34）
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'tools platform-tools platforms;android-34 build-tools;34.0.0'
+      - name: 环境自检
+        run: |
+          set -x
+          java -version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          ls "$ANDROID_HOME/cmdline-tools" || true
+          ls "$ANDROID_HOME/platforms" || true
 
-      - name: 缓存 Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - name: 补装 SDK 34（镜像里通常已有一份，缺了才装）
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKM" ]; then SDKM=$(find "$ANDROID_HOME" -name sdkmanager -type f | head -1); fi
+          echo "sdkmanager: $SDKM"
+          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+          "$SDKM" "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
+          "$SDKM" --list_installed || true
+
+      - name: gradlew 可执行位
+        run: chmod +x gradlew
+
+      - name: 编译 release（不签名，只验证出包）
+        run: ./gradlew --no-daemon --stacktrace --console=plain assembleRelease
 
       - name: 单元测试（Robolectric 冒烟 + 线格式）
-        run: ./gradlew --no-daemon testDebugUnitTest
+        if: always()
+        run: ./gradlew --no-daemon --stacktrace --console=plain testDebugUnitTest
 
-      - name: 编译 release APK（不签名、不发布，只验证能出包）
-        run: ./gradlew --no-daemon assembleRelease
-
-      - name: 上传测试报告与 debug 包
+      - name: 上传测试报告与产物
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-build
           path: |
             android/app/build/reports/tests/**
-            android/app/build/outputs/apk/debug/*.apk
-            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/**
+            android/app/build/outputs/logs/**
           retention-days: 7
           if-no-files-found: ignore

@@ -173,7 +173,7 @@ def v2ray_uri(p):
             _quote(p.get("password", "")), server, port, "&".join(q), _quote(_name(p))
         )
 
-    if t in ("hysteria2", "hysteria"):
+    if t == "hysteria2":
         q = []
         if sni:
             q.append("sni=" + _quote(sni))
@@ -183,11 +183,22 @@ def v2ray_uri(p):
             q.append("obfs-password=" + _quote(p["obfs-password"]))
         if insecure:
             q.append("insecure=1")
-        scheme = "hysteria2" if t == "hysteria2" else "hysteria"
         tail = ("?" + "&".join(q)) if q else ""
-        return "{}://{}@{}:{}{}#{}".format(
-            scheme, _quote(p.get("password", "")), server, port, tail, _quote(_name(p))
+        return "hysteria2://{}@{}:{}{}#{}".format(
+            _quote(p.get("password", "")), server, port, tail, _quote(_name(p))
         )
+
+    if t == "hysteria":
+        # hysteria v1 的分享链接是 hysteria://host:port?auth=...（v1 没有 userinfo）
+        # 旧实现复用了 hysteria2 的 "密码@" 写法，客户端解析必然失败
+        q = ["auth=" + _quote(p.get("auth-str") or p.get("auth_str") or p.get("password", ""))]
+        if sni:
+            q.append("peer=" + _quote(sni))
+        if p.get("obfs"):
+            q.append("obfs=" + _quote(p["obfs"]))
+        if insecure:
+            q.append("insecure=1")
+        return "hysteria://{}:{}{}#{}".format(server, port, "?" + "&".join(q), _quote(_name(p)))
 
     if t == "tuic":
         q = []
@@ -234,12 +245,21 @@ PER_TYPE_KEEP = {
 
 
 def _by_type(pool, types, limit):
-    """从池子里挑前 limit 个指定协议的节点，按 (协议,服务器,端口) 去重。"""
+    """从池子里挑前 limit 个指定协议的节点，按 (协议,服务器,端口,口令) 去重。
+
+    旧实现去重键没带口令：同服务器同端口但不同密码的 ss 节点会互相覆盖，
+    导出后只剩一条能连。
+    """
     out, seen = [], set()
     for p in pool:
         if p.get("type") not in types:
             continue
-        key = (p.get("type"), p.get("server"), p.get("port"))
+        key = (
+            p.get("type"),
+            p.get("server"),
+            p.get("port"),
+            p.get("password") or p.get("uuid") or p.get("auth-str") or "",
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -263,8 +283,9 @@ def sip008(proxies, tag="Walls"):
     servers = []
     for p in pick(proxies, SS_TYPES):
         item = {
-            "id": str(uuid.uuid3(uuid.NAMESPACE_URL, "{}:{}:{}".format(
-                p.get("server"), p.get("port"), p.get("cipher") or p.get("method")))),
+            "id": str(uuid.uuid3(uuid.NAMESPACE_URL, "{}:{}:{}:{}".format(
+                p.get("server"), p.get("port"),
+                p.get("cipher") or p.get("method"), p.get("password", "")))),
             "remarks": _name(p),
             "server": p.get("server"),
             "server_port": _int(p.get("port")),
@@ -347,8 +368,17 @@ def singbox_outbounds(proxies, tag="🚀 自动选择"):
         elif t == "trojan":
             o.update({"type": "trojan", "password": p.get("password", "")})
             tls = tls or {"enabled": True}
-        elif t in ("hysteria2", "hysteria"):
+        elif t == "hysteria2":
             o.update({"type": "hysteria2", "password": p.get("password", "")})
+            tls = tls or {"enabled": True}
+        elif t == "hysteria":
+            # hysteria v1 在 sing-box 里是独立的 type，不能当 hysteria2 导出
+            o.update({
+                "type": "hysteria",
+                "auth_str": p.get("auth-str") or p.get("auth_str") or p.get("password", ""),
+                "up": "50 Mbps",
+                "down": "50 Mbps",
+            })
             tls = tls or {"enabled": True}
         else:
             continue
@@ -443,8 +473,10 @@ def write_all(outdir, proxies, pool=None, meta=None):
 
 def main():
     ap = argparse.ArgumentParser(description="把 Clash 节点列表导出成各种客户端格式")
-    ap.add_argument("--in", dest="src", default=r"D:\Walls\tools\output\best_nodes.yml")
-    ap.add_argument("--out", dest="out", default=r"D:\Walls\tools\output")
+    _here = os.path.dirname(os.path.abspath(__file__))
+    _out = os.path.join(_here, "output")
+    ap.add_argument("--in", dest="src", default=os.path.join(_out, "best_nodes.yml"))
+    ap.add_argument("--out", dest="out", default=_out)
     ap.add_argument("--top", type=int, default=0, help="只导出前 N 个（0 表示全部）")
     args = ap.parse_args()
 

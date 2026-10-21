@@ -1,8 +1,13 @@
 ﻿param(
-    [string]$Repo = 'D:\Walls\NoMoreWalls',
+    # 2026-10 起仓库 clone 在 D:\NoMoreWalls；老的 D:\Walls\NoMoreWalls 仍可作为备选
+    [string]$Repo = 'D:\NoMoreWalls',
     [switch]$SkipFetch,
     [switch]$Quiet
 )
+
+if (-not (Test-Path $Repo) -and (Test-Path 'D:\Walls\NoMoreWalls')) {
+    $Repo = 'D:\Walls\NoMoreWalls'
+}
 
 # NoMoreWalls 长期自动更新脚本
 # 按仓库 README.md「本地部署 / 更新」部分的操作顺序执行：
@@ -36,7 +41,7 @@ if ($local -eq $remote) {
     Log "检测到更新：$local -> $remote"
 
     # 1) 备份当前生成文件（可恢复）
-    $bk = "D:\Walls\NoMoreWalls-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    $bk = Join-Path (Split-Path $Repo -Parent) "NoMoreWalls-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
     New-Item -ItemType Directory -Path $bk -Force | Out-Null
     Copy-Item "$Repo\list.meta.yml", "$Repo\list.yml", "$Repo\list.txt", "$Repo\list_raw.txt", "$Repo\list_result.csv" -Destination $bk -ErrorAction SilentlyContinue
     Copy-Item "$Repo\snippets" -Destination $bk -Recurse -ErrorAction SilentlyContinue

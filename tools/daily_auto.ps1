@@ -1,6 +1,8 @@
 param(
     [switch]$Force,
-    [switch]$Quick
+    [switch]$Quick,
+    [switch]$Doctor,
+    [int]$Workers = 8
 )
 
 # Wrapper for daily_auto.py: runs it and captures UTF-8 logs.
@@ -21,6 +23,14 @@ $env:PYTHONIOENCODING = 'utf-8'
 $pyArgs = @('-u', (Join-Path $Tools 'daily_auto.py'))
 if ($Force) { $pyArgs += '--force' }
 if ($Quick) { $pyArgs += '--quick' }
+if ($Doctor) { $pyArgs += @('--doctor', '--workers', $Workers) }
+
+# 体检模式：不写日志、不隐藏窗口，结果要直接看得见
+if ($Doctor) {
+    $env:PYTHONIOENCODING = 'utf-8'
+    & $py @pyArgs
+    exit $LASTEXITCODE
+}
 
 $p = Start-Process -FilePath $py -ArgumentList $pyArgs `
     -WindowStyle Hidden -WorkingDirectory $Tools `

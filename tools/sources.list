@@ -1,0 +1,56 @@
+# ============================================================================
+# 节点源清单
+# ----------------------------------------------------------------------------
+# 加源 / 停源改这个文件就行，不用动 Python 代码。
+#
+# 行首标记：
+#   #  注释
+#   !  这行需要本地代理才下得动（没配 local_proxy.conf 时自动跳过）
+#   *  这是「订阅列表页」，页面里的链接会被逐个展开
+#
+# 行末参数（# 后面）：
+#   #max=200            只取前 200 个节点（源很大时省时间）
+#   #ignore=vmess,ss    丢掉这些协议的节点
+#
+# 体检：python daily_auto.py --doctor
+#   会并发探一遍每个源，把可访问性、节点数、耗时、走的哪个镜像写进
+#   output/sources.md，并给出可直接粘贴回来的清单（死源已注释好）。
+#
+# 下面每条后面括注的是 2026-10-21 在本机实测的结果，供参考，会过时。
+# ============================================================================
+
+# ===== 综合大源（节点多，是主力）=====
+https://raw.githubusercontent.com/anaer/Sub/main/clash.yaml                      # 566 个
+https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/clash.yml   # 516 个
+https://raw.githubusercontent.com/free18/v2ray/main/c.yaml                          # 471 个
+https://raw.githubusercontent.com/mahdibland/ShadowsocksAggregator/master/sub/sub_merge.txt   # 4098 个，ss 大户
+
+# ===== 中等体量 =====
+https://raw.githubusercontent.com/mahdibland/ShadowsocksAggregator/master/Eternity.yml        # 201 个
+https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.txt                # 75 个
+https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/v2ray.txt    # 76 个
+https://raw.githubusercontent.com/snakem982/proxypool/main/source/v2ray-2.txt       # 64 个
+https://raw.githubusercontent.com/snakem982/proxypool/main/source/clash-meta-2.yaml # 63 个
+https://raw.githubusercontent.com/lagzian/SS-Collector/main/configs/subscription-all.b64  # 58 个
+
+# ===== 小体量 / 特色源（hy2 之类，数量少但协议稀有）=====
+https://raw.githubusercontent.com/Surfboardv2ray/TGParse/main/python/hysteria2      # 52 个
+https://raw.githubusercontent.com/zhangkaiitugithub/passcro/main/speednodes.yaml    # 31 个
+https://raw.githubusercontent.com/freefq/free/master/v2                             # 15 个
+https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub                    # 15 个
+https://raw.githubusercontent.com/ripaojiedian/freenode/main/clash                  # 14 个
+https://raw.githubusercontent.com/ripaojiedian/freenode/main/sub                    # 13 个
+https://raw.githubusercontent.com/shaoyouvip/free/refs/heads/main/all.yaml          # 13 个
+https://raw.githubusercontent.com/Surfboardv2ray/TGParse/main/python/hy2            # 3 个
+
+# ===== 列表页：页面里收集了很多订阅链接，会被展开 =====
+# 目前这个页面能打开但解析不出节点，先停用；找到新的合集页按 * 开头加一行即可
+# *https://raw.githubusercontent.com/abshare/abshare.github.io/main/README.md
+
+# ===== 已死，保留记录，别删（哪天复活了好找回来）=====
+# 2026-10-21 体检：全部镜像都 404/超时
+# https://raw.githubusercontent.com/learnhard-cn/free_proxy_ss/main/clash/clash.provider.yaml
+# https://raw.githubusercontent.com/aiboboxx/v2rayfree/main/v2
+# 2026-10-21 体检：偶发能通（5 次成功 / 59 次失败），性价比太低
+# https://raw.githubusercontent.com/mfuu/v2ray/master/v2ray
+EOF

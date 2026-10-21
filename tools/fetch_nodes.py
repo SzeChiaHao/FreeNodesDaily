@@ -474,38 +474,34 @@ def main():
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
-    proxy = load_proxy_setting()
-    session = requests.Session()
-    session.trust_env = False
-    session.headers.update({"User-Agent": UA})
+    # 源清单优先读 tools/sources.list（支持 ! 需代理 / * 列表页 / #max= / #ignore= 标记），
+    # 没有这个文件就退回本文件顶部的 SOURCES。抓取走 sources.py：镜像先行 + 顺序自学习。
+    import sources as SRC
+
+    srcs = SRC.load_sources(args.sources_file or SRC.DEFAULT_SOURCES_FILE)
+    if not srcs:
+        srcs = [SRC.Source(url) for url in SOURCES]
+    proxy = SRC.read_local_proxy()
+    mirror_health = SRC.load_mirror_health()
     if proxy:
-        session.proxies = {"http": proxy, "https": proxy}
+        print(f"使用本地代理: {proxy}")
 
     def fetch(url):
-        try:
-            r = session.get(url, timeout=args.timeout)
-            if r.status_code == 200:
-                return r.text
-        except requests.RequestException:
-            pass
-        return None
-
-    sources = list(SOURCES)
-    if args.sources_file and os.path.exists(args.sources_file):
-        with open(args.sources_file, "r", encoding="utf-8") as f:
-            sources = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+        text, _ = SRC.fetch_text(url, args.timeout, proxy, SRC.new_session(), mirror_health)
+        return text
 
     all_uris = []
     all_proxies = []
     rows = []
-    for i, src in enumerate(sources):
-        url = src.split("#")[0].strip()
-        is_list = "#type=list" in src
-        text = fetch(url)
-        if text is None:
-            rows.append((i, url, "失败"))
+    for i, src in enumerate(srcs):
+        if src.needs_proxy and not proxy:
+            print(f"[{i}] 跳过（需要代理）{src.url}")
             continue
-        if is_list:
+        text, mirror = SRC.fetch_text(src.url, args.timeout, proxy, SRC.new_session(), mirror_health)
+        if text is None:
+            rows.append((i, src.url, "失败"))
+            continue
+        if src.is_list:
             merged = expand_list_page(text, fetch)
             uris = [u for u in merged if isinstance(u, str)]
             proxies = [p for p in merged if isinstance(p, dict)]
@@ -513,8 +509,9 @@ def main():
             uris, proxies = parse_content(text)
         all_uris.extend(uris)
         all_proxies.extend(proxies)
-        rows.append((i, url, len(uris) + len(proxies)))
-        print(f"[{i}] {url} -> {len(uris) + len(proxies)} 节点")
+        rows.append((i, src.url, len(uris) + len(proxies)))
+        print(f"[{i}] {src.url} -> {len(uris) + len(proxies)} 节点（镜像 {mirror}）")
+    SRC.save_mirror_health(mirror_health)
 
     # 合并 & 去重 & 过滤
     proxies = list(all_proxies)

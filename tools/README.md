@@ -8,6 +8,8 @@
 | 文件 | 作用 |
 |---|---|
 | `daily_auto.py` | **核心**。抓取 + 独立 mihomo 内核测速 + 按下载速度降序排序 + 导出多客户端订阅 + 同步 Clash Verge |
+| `sources.py` | 源清单解析、镜像兜底（顺序自学习）、源体检。`daily_auto.py` 和 `fetch_nodes.py` 共用 |
+| `sources.list` | **节点源清单**（文本文件）。加源 / 停源改这里，不用动 Python |
 | `daily_auto.ps1` | 包装脚本：调用 daily_auto.py，写 UTF-8 日志，自动清理旧日志 |
 | `setup_auto.ps1` | 一键安装自动任务（每日 08:00 + 开机登录自启），无需管理员权限 |
 
@@ -28,6 +30,16 @@
 > 「NoMoreWalls 订阅更新」（每天 07:30 更新仓库）保留不动，它负责维护仓库本体。
 
 ## 三、手动使用
+
+### 源体检（先跑这个，几十秒）
+
+```powershell
+python D:\Walls\tools\daily_auto.py --doctor
+```
+
+并发探一遍 `sources.list` 里的每个源，列出：通不通、解析出多少节点、耗时、走的哪个镜像，
+结果写到 `output/sources.md`，末尾附一段「可直接粘回 sources.list 的清单」（死源已帮你注释好）。
+加源/停源之前先跑它，比整轮跑（几分钟到十几分钟）快得多。
 
 ### 完整跑一次（抓取 + 测速 + 排序 + 同步）
 
@@ -55,6 +67,10 @@ python D:\Walls\tools\daily_auto.py --no-label         # 不给节点名加速�
 `--speed-top`（做下载测速的节点数，默认 150）、`--speed-max-delay`（参与测速的延迟上限 ms，默认 1500）、
 `--min-speed`（合格最低速度 MB/s，默认 0.2）、`--top`（最终保留数，默认 40）、`--min-per-type` / `--keep-per-type`（协议保底与配额）、`--exclude-types`（排除某些协议，例如 `http,socks5`）。
 
+抓取相关的三个：`--workers`（并发数，默认 8）、`--timeout`（单源超时秒）、`--sources-file`（换成别的清单文件）、
+`--region-min`（地区组至少几个节点才建，默认 2；设 0 则有一个就建）、
+`--delay-workers`（延迟测试并发，默认 16）、`--max-per-type`（单协议封顶，默认 `http=10,socks5=4`，压掉抢名额的 http 节点）。
+
 ## 四、输出文件（`D:\Walls\tools\output\`）
 
 跑完一次会同时产出好几种格式，**不同客户端各拿各的**：
@@ -71,8 +87,12 @@ python D:\Walls\tools\daily_auto.py --no-label         # 不给节点名加速�
 | `singbox-outbounds.json` | sing-box 的 `outbounds` 片段（含一个 selector），粘进你自己的配置即可 |
 | `report.md` | 人类可读的测速报告（排名、延迟、速度） |
 
-`best_nodes.yml` 里有两个组：
+`best_nodes.yml` 里现在有三类组：
+
 - `🚀 自动选择`（url-test）：Clash 自动选延迟最低的节点；
+- `🔁 故障转移`（fallback）：按顺序往后试，前一个不通才换下一个；
+- 地区组（`🇭🇰 香港`、`🇯🇵 日本`、`🇺🇸 美国` …，各自 url-test）：想要「就固定用某个地区」时用；
+  地区是从节点名里认的（中文名 / 国旗 / ISO 两字母码都认），一个地区至少 2 个节点才建组；
 - `🐟 手动选择(按速度排序)`：节点按实测下载速度从快到慢排列，手动挑最快的用。
 
 ### 只给纯 Shadowsocks 客户端出订阅
@@ -100,16 +120,34 @@ python D:\Walls\tools\daily_auto.py --no-label         # 不给节点名加速�
 
 ## 六、如何增删节点源（含动态发现）
 
-**手动加固定源**：编辑 `daily_auto.py` 开头的 `EXTRA_SOURCES` 列表（每行一个订阅链接，`#type=list` 表示页面里含多个订阅）。默认节点源来自 `fetch_nodes.py` 的 `SOURCES`。所有 `raw.githubusercontent.com` 源都会自动按「直连 → jsDelivr → gh-proxy」顺序镜像兜底。
+**主入口是 `sources.list`**（纯文本，不用改代码）：
+
+```text
+# 注释
+https://raw.githubusercontent.com/owner/repo/main/clash.yaml
+!https://需要代理才下得动的源/xxx                     # 行首 ! ：要本地代理
+*https://某个收集订阅链接的页面/README.md          # 行首 * ：订阅列表页，展开里面的链接
+https://raw.githubusercontent.com/owner/repo/main/sub#max=200&ignore=vmess,ss
+```
+
+行末 `#max=N` 只取前 N 个节点；`#ignore=a,b` 丢掉这些协议；`EOF` 一行表示读到这为止。
+没这个文件时自动退回 `daily_auto.py` 里的 `EXTRA_SOURCES` + `fetch_nodes.py` 里的 `SOURCES`（老行为不变）。
+
+**镜像顺序是自学习的**：`raw.githubusercontent.com` 在这台机器上实测完全连不通（40 秒超时），
+而 `cdn.jsdelivr.net` 0.4 秒、`gh-proxy.com` 0.45 秒就回来了。所以默认**先镜像、raw 放最后**，
+并按历史成功率 / 耗时自动排序（`state/mirror_health.json`）。这一条加上并发抓取（`--workers`，默认 8），
+把阶段 1 从过去的五六分钟压到几十秒。
 
 **聚合页自动发现**（方案①）：编辑 `daily_auto.py` 里的 `SEED_PAGES` 列表，加入专门收集订阅链接的页面（如某个 README）。脚本每次运行会：
 1. 展开聚合页、提取候选订阅链接；
 2. 逐个验证（能解析出节点的才算有效源），有效的自动加入 `state/discovered_sources.txt` 持久化；
-3. 每次抓取记录每个源的成败（`state/source_health.json`），动态源连续失败 5 次自动淘汰。
+3. 每次抓取记录每个源的成败与产出节点数（`state/source_health.json`），动态源连续失败 5 次自动淘汰。
 
 **代理兜底**：若直连+镜像都失败，脚本会尝试走 `local_proxy.conf` 里配置的本地代理（前提是 Clash Verge 在运行且代理端口可用），这样需要代理才能访问的源（如 ermao.net）也能被抓到。
 
-> 现状说明：免费节点生态里，能直连的 GitHub 源基本都已在 `SOURCES` 里了；需要代理的源要等 Clash Verge 代理可用时才能被发现。`SEED_PAGES` 目前只有 `ermaozi/get_subscribe` 一个种子，以后你在 TG/论坛看到新的「订阅合集」页面，把链接加进去即可扩展。
+> 现状说明：2026-10-21 体检 `sources.list` 里 18 个源全部可用（合计 6404 个节点）。
+> 已死掉的三个（`learnhard-cn/free_proxy_ss`、`aiboboxx/v2rayfree`、`mfuu/v2ray`）已注释保留在文件底部。
+> 想扩源：在 TG/论坛/其它聚合仓库看到新的订阅，用 `--doctor` 验一下，能出节点就加进 `sources.list`。
 
 ## 七、移除自动任务
 
@@ -119,6 +157,31 @@ del "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AutoFreeNodes.vb
 ```
 
 ## 八、注意事项
+
+### 本版（2026-10-21）改了什么
+
+- **源清单外置成 `sources.list`**，支持 NoMoreWalls 那套标记语法（`!` 需代理 / `*` 列表页 / `#max=` / `#ignore=`）。
+  加源/停源不用再改 Python。同时替换了已死的源：`learnhard-cn`、`aiboboxx/v2rayfree`、`mfuu/v2ray`
+  已注释保留；新增 4 个实测可用的（`snakem982/proxypool` ×2、`free18/v2ray`、`lagzian/SS-Collector`）。
+- **镜像顺序自学习 + 并发抓取**。实测 `raw.githubusercontent.com` 在这台机器上完全连不通（40 秒超时），
+  而 cdn.jsdelivr 0.4 秒就回；原来的顺序是「raw 优先」，每个源都要先白等 20 秒超时。
+  现在先镜像、raw 放最后，按历史成功率/耗时排序，并且 8 路并发：
+  18 个源从 **约 6 分钟降到 5～15 秒**。
+- **新增 `--doctor` 体检模式**：并发探一遍所有源，几十秒内给出通/空/死、节点数、耗时、实际走的镜像，
+  写 `output/sources.md`，并附一段可直接粘回 `sources.list` 的清单（死源已帮你注释）。
+- **延迟测试改成逐节点并发探测**（`--delay-workers`）。原来的做法是把 500～600 个节点
+  一次性丢给内核的 url-test，内核自己就撑爆了，大量可用节点被误判成死的。
+- **输出加了地区组**（香港/日本/美国/新加坡/台湾… 各自 url-test）与 `🔁 故障转移`（fallback），
+  并补上 `mixed-port` / `mode` / `log-level` / `unified-delay` / `tcp-concurrent`，
+  这份 yml 自己就能当一份完整配置用。
+- **单协议封顶**（`--max-per-type`，默认 `http=10,socks5=4`）：
+  以前最终名单很容易被 http 节点刷满（它们快、量大），结果 sip008 / ss-* / v2ray 这些文件几乎是空的。
+- **`report.md` 扩写**：除了排名，还有协议与地区分布、每个源的健康度（节点数/耗时/镜像）。
+- **`state/source_health.json` 升级**：除 ok/fail，还记最后一次成功时间、产出节点数、最后错误。
+- `local_proxy.conf` 改成 `tools/local_proxy.conf` 优先（老位置 `D:\NoMoreWalls\`、`D:\Walls\NoMoreWalls\` 仍兼容）。
+- `update_nomorewalls.ps1` 默认仓库路径改为 `D:\NoMoreWalls`。
+
+### 一般事项
 
 - 免费节点随时失效、质量参差，这是常态；本脚本靠"每日刷新 + 实测排序 + 严格过滤"尽量只留可用的。
 - 免费节点有安全风险（可能记录流量）：不要通过免费节点登录重要账号、访问明文网站、或挖矿。

@@ -144,18 +144,24 @@ class MihomoRunner:
     def select(self, name):
         self.api("PUT", "/proxies/TEST", json={"name": name})
 
-    def delay(self, name, timeout_ms):
+    def delay(self, name, timeout_ms, url=None):
+        """测单个节点的延迟；url 默认用 GOOGLE_204。"""
         q = urllib.parse.quote(name, safe="")
+        target = url or GOOGLE_204
         try:
             r = self.api(
                 "GET",
-                f"/proxies/{q}/delay?url={urllib.parse.quote(GOOGLE_204, safe='')}&timeout={timeout_ms}",
+                f"/proxies/{q}/delay?url={urllib.parse.quote(target, safe='')}&timeout={timeout_ms}",
             )
             if r.status_code == 200:
                 return r.json().get("delay")
             return None
         except requests.RequestException:
             return None
+
+    def delay_to(self, name, url, timeout_ms):
+        """对指定 URL 测延迟（多目标探测时用）。"""
+        return self.delay(name, timeout_ms, url=url)
 
 
 def http_ok(session, url, timeout, expect=(200, 204, 301, 302, 303, 307, 308)):

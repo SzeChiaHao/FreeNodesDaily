@@ -13,7 +13,7 @@ android {
         applicationId = "com.szech.walls"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
+        versionCode = 14
         versionName = "2.2"
         resourceConfigurations += listOf("zh", "en")
     }

@@ -13,11 +13,18 @@ param(
     # 发布到 GitHub Releases，并更新仓库里的 version.json（手机的更新通道）
     [switch]$Release,
     [string]$Notes = "",
+    # 发布说明也可以放文件里：-NotesFile 路径（按 UTF-8 读，避免中文变乱码）
+    [string]$NotesFile = "",
     # GitHub token；不给就去 git 凭据管理器里取
     [string]$Token = ""
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($NotesFile) {
+    if (-not (Test-Path $NotesFile)) { Write-Host "找不到说明文件 $NotesFile" -ForegroundColor Red; exit 7 }
+    $Notes = [System.IO.File]::ReadAllText($NotesFile, [System.Text.Encoding]::UTF8).Trim()
+}
 
 $Root    = 'D:\Walls'
 $Android = Join-Path $Root 'android'
@@ -79,6 +86,7 @@ if ($code -ne 0) { Write-Host "编译失败（退出码 $code）" -ForegroundCol
 # 不往 C 盘「下载」写：产物统一落在 D:/Walls/out/，好找也好清。
 $apk = Join-Path $OutDir 'app-release.apk'
 if (-not (Test-Path $apk)) { Write-Host "没找到产物 $apk" -ForegroundColor Red; exit 5 }
+$skipCopy = $false
 $DestDir = Join-Path $Root 'out'
 if (-not (Test-Path $DestDir)) { New-Item -ItemType Directory -Path $DestDir | Out-Null }
 # 文件名带上 versionCode，一个版本一个文件；已经存在就再缀个时间，绝不覆盖旧的。
@@ -92,13 +100,13 @@ if (Test-Path $dest) {
         $size0 = [math]::Round((Get-Item $dest).Length / 1MB, 2)
         Write-Host ''
         Write-Host "内容与已有包一致，未重复保存：$dest ($size0 MB)" -ForegroundColor Green
-        Write-Host '把它传到手机安装即可覆盖旧版（签名一致，数据保留）。' -ForegroundColor Green
-        exit 0
+        $skipCopy = $true
+    } else {
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $dest = Join-Path $DestDir "Walls-$newName-vc$newCode-$stamp.apk"
     }
-    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $dest = Join-Path $DestDir "Walls-$newName-vc$newCode-$stamp.apk"
 }
-Copy-Item -Force $apk $dest
+if (-not $skipCopy) { Copy-Item -Force $apk $dest }
 
 $size = [math]::Round((Get-Item $dest).Length / 1MB, 2)
 Write-Host ""

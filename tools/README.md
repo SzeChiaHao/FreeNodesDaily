@@ -11,23 +11,40 @@
 | `sources.py` | 源清单解析、镜像兜底（顺序自学习）、源体检。`daily_auto.py` 和 `fetch_nodes.py` 共用 |
 | `sources.list` | **节点源清单**（文本文件）。加源 / 停源改这里，不用动 Python |
 | `daily_auto.ps1` | 包装脚本：调用 daily_auto.py，写 UTF-8 日志，自动清理旧日志 |
-| `setup_auto.ps1` | 一键安装自动任务（每日 08:00 + 开机登录自启），无需管理员权限 |
+| `setup_auto.ps1` | 安装自动启动（默认不需管理员）；提权跑一次则升级为计划任务 |
 
 旧脚本（`fetch_nodes.py`、`node_quality.py`、`update_nomorewalls.ps1` 等）仍保留，
 `daily_auto.py` 复用了它们的"节点解析"和"mihomo 测速框架"，但旧脚本不再作为主入口。
 
-## 二、自动任务（已装好）
+## 二、自动更新是怎么触发的
 
-| 触发 | 方式 | 说明 |
-|---|---|---|
-| 每日 08:00 | 计划任务 `AutoFreeNodes Daily` | 每天定时跑完整流程 |
-| 开机登录 | 启动文件夹 `AutoFreeNodes.vbs` | 登录后静默跑一次（无窗口） |
+**主机制：登录自启动（不需管理员权限）**
 
-两次完整运行之间内置 **6 小时 guard**：即便每日任务和开机自启撞上，也不会重复跑。
-（脚本里有"上次成功运行时间"标记，`--force` 可强制忽略。）
+启动文件夹里放着 `AutoFreeNodes.vbs`，它调 `tools\run_hidden.vbs`，后者等 30 秒
+（等 Wi-Fi 连上）再静默跑 `daily_auto.ps1`。所以：
 
-> 旧的每周任务「NoMoreWalls 独立节点抓取」已被本方案取代，可在任务计划程序里停用。
-> 「NoMoreWalls 订阅更新」（每天 07:30 更新仓库）保留不动，它负责维护仓库本体。
+- 开机登录 → 等 30 秒 → 自己跑一轮，约 5～15 分钟，全程无窗口；
+- **距上次成功不足 6 小时会自动跳过**（`state\last_run.txt`），所以反复注销/登录不会重复跑；
+- 不想等下次登录：`powershell -ExecutionPolicy Bypass -File D:\Walls\tools\daily_auto.ps1 -Force`。
+
+**为什么不再挂一个「每天 08:00」的定时任务**：八点经常没开机，那一天的闹钟就白设了。
+开机就跑才是「只要在用电脑，节点就是新的」。
+
+**可选升级（需要管理员，会弹一次 UAC）**
+
+想要「用电池也跑」「跑到一半拔电源不被杀」「一直不关机也每 8 小时刷一次」这几条，
+必须用计划任务（而 `schtasks` 创建任务需要提权）。做法：
+
+```powershell
+# 右键 PowerShell → 以管理员身份运行，再执行：
+powershell -ExecutionPolicy Bypass -File D:\Walls\tools\setup_auto.ps1
+```
+
+它会注册任务 `AutoFreeNodes`：登录后 45 秒跑一次 + 之后每 8 小时重复 + 每天 08:00 也试一次
+（开了 `StartWhenAvailable`，八点没开机就开机后补跑），并把启动文件夹里那份删掉，避免两套机制并存。
+
+> 旧的「每日 08:00」任务 `AutoFreeNodes Daily` 已删除。
+> 「NoMoreWalls 订阅更新」任务照旧，它负责维护仓库本体。
 
 ## 三、手动使用
 
@@ -149,11 +166,12 @@ https://raw.githubusercontent.com/owner/repo/main/sub#max=200&ignore=vmess,ss
 > 已死掉的三个（`learnhard-cn/free_proxy_ss`、`aiboboxx/v2rayfree`、`mfuu/v2ray`）已注释保留在文件底部。
 > 想扩源：在 TG/论坛/其它聚合仓库看到新的订阅，用 `--doctor` 验一下，能出节点就加进 `sources.list`。
 
-## 七、移除自动任务
+## 七、移除自动启动
 
 ```powershell
-schtasks /delete /tn "AutoFreeNodes Daily" /f
 del "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AutoFreeNodes.vbs"
+# 如果当初提权升级过计划任务，再多删一个：
+schtasks /delete /tn "AutoFreeNodes" /f
 ```
 
 ## 八、注意事项

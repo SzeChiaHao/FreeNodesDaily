@@ -228,12 +228,22 @@ object Formats {
     fun clashYaml(nodes: List<Node>, groupNote: String = ""): String {
         val proxies = nodes.map { clean(it.map) }
         val names = nodes.map { (it.map["name"] as? String) ?: it.name }
+
+        // 名单分层：实测通过的 vs 只测过端口的。
+        // 手机端只能真测 ss / trojan / vless，其余协议只证明「端口能连」——
+        // 把它们混进自动选择，客户端就会去连一堆连不上的节点。
+        val verifiedIdx = nodes.indices.filter { nodes[it].speed > 0 }
+        val unverifiedIdx = nodes.indices.filter { nodes[it].speed <= 0 }
+        val verifiedNames = if (verifiedIdx.isEmpty()) names else verifiedIdx.map { names[it] }
+        val unverifiedNames = unverifiedIdx.map { names[it] }
+
         // 免费节点名字是别人起的，什么都可能有；万一就叫「🚀 自动选择」，
         // 直接重名会让 mihomo 拒绝加载整份配置
         val taken = names.toSet()
         val autoGroup = groupName("🚀 自动选择", taken)
         val fallbackGroup = groupName("🔁 故障转移", taken)
         val manualGroup = groupName("🐟 手动选择" + if (groupNote.isEmpty()) "" else groupNote, taken)
+        val unverifiedGroup = groupName("⚠️ 未实测（可能连不上）", taken)
 
         val root = LinkedHashMap<String, Any?>()
         // 这几行是让整份文件自己就能当一份完整配置用：
@@ -253,7 +263,9 @@ object Formats {
                 "url" to "http://cp.cloudflare.com/generate_204",
                 "interval" to 300,
                 "tolerance" to 50,
-                "proxies" to names
+                // 自动选择只放实测通过的。一个都没有（比如夜里全挂）才退回全部，
+                // 否则会出现「组里没有节点、整份配置不可用」。
+                "proxies" to verifiedNames
             )
         )
         groups.add(
@@ -262,12 +274,13 @@ object Formats {
                 "type" to "fallback",
                 "url" to "http://cp.cloudflare.com/generate_204",
                 "interval" to 300,
-                "proxies" to names
+                "proxies" to verifiedNames
             )
         )
-        // 地区组：想要「就固定用香港」时直接选那个组，不用在四十个节点里翻
-        for ((display, members) in Regions.groups(nodes, names)) {
-            val gName = groupName(display, taken + setOf(autoGroup, fallbackGroup, manualGroup))
+        // 地区组：想要「就固定用香港」时直接选那个组，不用在几十个节点里翻
+        val verifiedNodes = verifiedIdx.map { nodes[it] }
+        for ((display, members) in Regions.groups(verifiedNodes, verifiedNames)) {
+            val gName = groupName(display, taken + setOf(autoGroup, fallbackGroup, manualGroup, unverifiedGroup))
             groups.add(
                 linkedMapOf(
                     "name" to gName,
@@ -286,6 +299,16 @@ object Formats {
                 "proxies" to names
             )
         )
+        // 未实测的单独一组，必须手选才会走 —— 明摆着写「可能连不上」，不静默失败
+        if (unverifiedNames.isNotEmpty()) {
+            groups.add(
+                linkedMapOf(
+                    "name" to unverifiedGroup,
+                    "type" to "select",
+                    "proxies" to unverifiedNames
+                )
+            )
+        }
         root["proxy-groups"] = groups
         root["rules"] = listOf("MATCH,$autoGroup")
         return yaml.dump(root)
@@ -302,6 +325,8 @@ object Formats {
                 .append("  |  ").append(n.type)
                 .append("  |  延迟 ").append(d)
                 .append("  |  速度 ").append(sp)
+                // 未实测的标出来：报告是给人看的，别让人以为每条都验过
+                .append(if (n.speed > 0) "" else "  |  未实测")
             // 没测通的原因也写进来：导出说明里一直承诺「能看排名和没测通的原因」
             if (n.note.isNotEmpty()) sb.append("  |  ").append(n.note)
             sb.append("\n")

@@ -20,10 +20,10 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class PipelineConfig(
     var sources: List<String> = com.szech.walls.pipeline.DefaultSources.LIST,
-    var maxNodes: Int = 600,
+    var maxNodes: Int = 400,
     var tcpTimeoutMs: Int = 2500,
     var maxDelayMs: Int = 3000,
-    var speedTop: Int = 80,
+    var speedTop: Int = 150,
     var speedMaxDelayMs: Int = 1500,
     var minSpeedMbps: Double = 0.2,
     var keepTop: Int = 40,
@@ -228,7 +228,7 @@ object Pipeline {
             onLog("== 阶段 2b/3：通过节点实测握手延迟与下载速度（${pool.size} 个）==")
             if (pool.isNotEmpty()) {
                 val speedDone = AtomicInteger(0)
-                val speedSem = Semaphore(12)
+                val speedSem = Semaphore(20)
                 coroutineScope {
                     pool.map { n ->
                         async {

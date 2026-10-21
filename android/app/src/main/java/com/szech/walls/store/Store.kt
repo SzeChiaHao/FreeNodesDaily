@@ -16,7 +16,24 @@ object Prefs {
     fun init(ctx: Context) {
         if (!::sp.isInitialized) {
             sp = ctx.getSharedPreferences("walls", Context.MODE_PRIVATE)
+            migrateDefaults()
         }
+    }
+
+    /**
+     * 默认值搬家。
+     *
+     * 只在「用户没改过」时换掉默认（存的值等于旧默认才动），并且只做一次，
+     * 免得把用户自己调过的数字盖掉。
+     */
+    private fun migrateDefaults() {
+        val rev = sp.getInt("cfgRev", 1)
+        if (rev >= 2) return
+        // v2.3：候选 600→400（一轮快三分之一）、测速名额 80→150（实测得更多）
+        val e = sp.edit()
+        if (sp.getInt("maxNodes", 600) == 600) e.putInt("maxNodes", 400)
+        if (sp.getInt("speedTop", 80) == 80) e.putInt("speedTop", 150)
+        e.putInt("cfgRev", 2).apply()
     }
 
     /** 抓取跑完之后，自动把各种格式的配置文件写进「下载/Walls/」 */
@@ -48,7 +65,7 @@ object Prefs {
         set(v) = sp.edit().putBoolean("quick", v).apply()
 
     var maxNodes: Int
-        get() = sp.getInt("maxNodes", 600)
+        get() = sp.getInt("maxNodes", 400)
         set(v) = sp.edit().putInt("maxNodes", v).apply()
 
     var keepTop: Int
@@ -56,7 +73,7 @@ object Prefs {
         set(v) = sp.edit().putInt("keepTop", v).apply()
 
     var speedTop: Int
-        get() = sp.getInt("speedTop", 80)
+        get() = sp.getInt("speedTop", 150)
         set(v) = sp.edit().putInt("speedTop", v).apply()
 
     var speedBytesKb: Int
@@ -75,6 +92,17 @@ object Prefs {
     var labelSpeed: Boolean
         get() = sp.getBoolean("labelSpeed", true)
         set(v) = sp.edit().putBoolean("labelSpeed", v).apply()
+
+    /**
+     * 导出时是否带上「未实测」的节点。
+     *
+     * 默认关：手机端只能真测 ss / trojan / vless，vmess 之类只测过 TCP 端口，
+     * 而「端口能连」远不等于能用。以前这些节点混在主名单里，导进客户端就是一片连不上。
+     * 打开后它们会单独放一个组，不参与自动选择。
+     */
+    var includeUnverified: Boolean
+        get() = sp.getBoolean("includeUnverified", false)
+        set(v) = sp.edit().putBoolean("includeUnverified", v).apply()
 
     var mirrorFirst: Boolean
         get() = sp.getBoolean("mirrorFirst", true)

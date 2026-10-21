@@ -117,19 +117,40 @@ object WallsCmd {
 
     fun fileNameOf(fmt: ExportFormat, stamp: String): String = fmt.prefix + "-" + stamp + "." + fmt.ext
 
-    private fun contentOf(fmt: ExportFormat, nodes: List<Node>): String = when (fmt.key) {
+    /**
+     * 导出前把名单分一下：实测通过的 vs 只测过端口的。
+     *
+     * 手机端只能真测 ss / trojan / vless；vmess、hysteria2 这些只测了 TCP 端口能连，
+     * 而「端口能连」不等于能用（密码/路径/SNI 任何一个错都连不上）。
+     * 所以默认只导出实测通过的；打开 Prefs.includeUnverified 才把它们带上，
+     * 并且在 Clash 配置里单独放一个不参与自动选择的组。
+     */
+    private fun exportNodes(all: List<Node>): List<Node> {
+        if (Prefs.includeUnverified) return all
+        val verified = all.filter { it.speed > 0 }
+        if (verified.isEmpty()) {
+            Log.add("本次没有实测通过的节点，退回导出全部（含未实测）")
+            return all
+        }
+        return verified
+    }
+
+    private fun contentOf(fmt: ExportFormat, nodes: List<Node>, all: List<Node>): String = when (fmt.key) {
         "clash" -> Formats.clashYaml(nodes, "(按速度排序)")
         "v2ray" -> Formats.base64AllLinks(nodes)
         "sip008" -> Formats.sip008(nodes)
         "ssb64" -> Formats.base64Ss(nodes)
         "ssplain" -> Formats.plainSs(nodes)
         "all" -> Formats.plainAllLinks(nodes)
-        else -> Formats.reportMd(nodes, "节点测速报告")
+        // 报告是给人看的诊断材料，不受「只导实测」的限制
+        else -> Formats.reportMd(all, "节点测速报告")
     }
 
     /** 要导出的全部格式：文件名 → 内容、MIME */
-    fun exportItems(nodes: List<Node>, stamp: String = stamp()): List<Triple<String, String, String>> =
-        FORMATS.map { Triple(fileNameOf(it, stamp), contentOf(it, nodes), it.mime) }
+    fun exportItems(nodes: List<Node>, stamp: String = stamp()): List<Triple<String, String, String>> {
+        val filtered = exportNodes(nodes)
+        return FORMATS.map { Triple(fileNameOf(it, stamp), contentOf(it, filtered, nodes), it.mime) }
+    }
 
     /** 这一批文件的名字，用来告诉清理逻辑「别删刚生成的」 */
     private fun namesOf(stamp: String): Set<String> =
@@ -231,6 +252,11 @@ object WallsCmd {
         }
         val st = stamp()
         val items = exportItems(nodes, st)
+        val verifiedCount = nodes.count { it.speed > 0 }
+        val kept = if (Prefs.includeUnverified) nodes.size else maxOf(verifiedCount, nodes.size)
+        if (!Prefs.includeUnverified && verifiedCount in 1 until nodes.size) {
+            Log.add("只导出实测通过的 $verifiedCount 个；另外 ${nodes.size - verifiedCount} 个只测过端口，未写入（设置里可包含）")
+        }
         val keep = namesOf(st)
         var cleaned = 0
         if (cleanOld) cleaned = cleanOldExports(ctx, keep)
@@ -260,10 +286,18 @@ object WallsCmd {
             return null
         }
         val name = fileNameOf(fmt, stamp())
-        val ok = writeToDownloads(ctx, name, contentOf(fmt, Repo.nodes), fmt.mime) != null
+        val picked = exportNodes(Repo.nodes)
+        val ok = writeToDownloads(
+            ctx, name, contentOf(fmt, picked, Repo.nodes), fmt.mime
+        ) != null
         if (ok) {
             Prefs.lastExportAt = System.currentTimeMillis()
-            toast(ctx, "已生成 下载/Walls/$name")
+            val dropped = Repo.nodes.size - picked.size
+            toast(
+                ctx,
+                "已生成 下载/Walls/$name" +
+                    if (dropped > 0) "（只含实测通过的 ${picked.size} 个）" else ""
+            )
             return name
         }
         toast(ctx, "生成失败，存储空间不够？")

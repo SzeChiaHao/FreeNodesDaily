@@ -214,7 +214,9 @@ class UiSmokeTest {
         ShadowLooper.idleMainLooper()
 
         val host = a.findViewById<View>(R.id.nav_host)
-        assertEquals("改之前应该是默认候选上限", 1, countText(host, "600"))
+        // 不写死具体数字：默认值会随版本调整（600 → 400），这里只验证「显示 = 当前设置」
+        val before = com.szech.walls.store.Prefs.maxNodes
+        assertEquals("改之前应显示当前候选上限", 1, countText(host, before.toString()))
 
         com.szech.walls.store.Prefs.maxNodes = 777
         val frag = a.supportFragmentManager.findFragmentById(R.id.nav_host)!!
@@ -223,7 +225,7 @@ class UiSmokeTest {
         ShadowLooper.idleMainLooper()
 
         assertEquals("改完之后界面上的数字应该跟着变", 1, countText(host, "777"))
-        com.szech.walls.store.Prefs.maxNodes = 600
+        com.szech.walls.store.Prefs.maxNodes = before
     }
 
     @Test

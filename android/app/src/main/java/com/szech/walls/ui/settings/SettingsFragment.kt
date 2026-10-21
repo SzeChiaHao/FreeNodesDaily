@@ -56,7 +56,9 @@ class SettingsFragment : WallsPageFragment() {
                 boolItem(R.drawable.ic_verified, "只保留可实测协议的节点",
                     { Prefs.measurableOnly }) { Prefs.measurableOnly = it },
                 boolItem(R.drawable.ic_label, "节点名加上速度前缀",
-                    { Prefs.labelSpeed }) { Prefs.labelSpeed = it }
+                    { Prefs.labelSpeed }) { Prefs.labelSpeed = it },
+                boolItem(R.drawable.ic_error, "导出包含未实测节点",
+                    { Prefs.includeUnverified }) { Prefs.includeUnverified = it }
             ),
             "自动化" to listOf(
                 boolItem(R.drawable.ic_download, "抓取后自动保存",

@@ -232,30 +232,61 @@ object Formats {
         // 直接重名会让 mihomo 拒绝加载整份配置
         val taken = names.toSet()
         val autoGroup = groupName("🚀 自动选择", taken)
+        val fallbackGroup = groupName("🔁 故障转移", taken)
         val manualGroup = groupName("🐟 手动选择" + if (groupNote.isEmpty()) "" else groupNote, taken)
 
         val root = LinkedHashMap<String, Any?>()
-        // 这三行是让整份文件自己就能当一份完整配置用：
+        // 这几行是让整份文件自己就能当一份完整配置用：
         // 缺了端口/模式的 YAML 有些客户端能容忍，有些直接报错。
         root["mixed-port"] = 7890
         root["mode"] = "rule"
         root["log-level"] = "info"
+        root["unified-delay"] = true
+        root["tcp-concurrent"] = true
         root["proxies"] = proxies
-        root["proxy-groups"] = listOf(
-            linkedMapOf<String, Any?>(
+
+        val groups = ArrayList<LinkedHashMap<String, Any?>>()
+        groups.add(
+            linkedMapOf(
                 "name" to autoGroup,
                 "type" to "url-test",
-                "url" to "http://www.gstatic.com/generate_204",
+                "url" to "http://cp.cloudflare.com/generate_204",
                 "interval" to 300,
                 "tolerance" to 50,
                 "proxies" to names
-            ),
-            linkedMapOf<String, Any?>(
+            )
+        )
+        groups.add(
+            linkedMapOf(
+                "name" to fallbackGroup,
+                "type" to "fallback",
+                "url" to "http://cp.cloudflare.com/generate_204",
+                "interval" to 300,
+                "proxies" to names
+            )
+        )
+        // 地区组：想要「就固定用香港」时直接选那个组，不用在四十个节点里翻
+        for ((display, members) in Regions.groups(nodes, names)) {
+            val gName = groupName(display, taken + setOf(autoGroup, fallbackGroup, manualGroup))
+            groups.add(
+                linkedMapOf(
+                    "name" to gName,
+                    "type" to "url-test",
+                    "url" to "http://cp.cloudflare.com/generate_204",
+                    "interval" to 300,
+                    "tolerance" to 50,
+                    "proxies" to members
+                )
+            )
+        }
+        groups.add(
+            linkedMapOf(
                 "name" to manualGroup,
                 "type" to "select",
                 "proxies" to names
             )
         )
+        root["proxy-groups"] = groups
         root["rules"] = listOf("MATCH,$autoGroup")
         return yaml.dump(root)
     }

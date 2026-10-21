@@ -22,9 +22,17 @@ object Prober {
     /** 延迟探测最多跑几轮（每轮换一遍目标） */
     const val LATENCY_ROUNDS = 2
 
+    /**
+     * 延迟探测目标：先打纯 HTTP 的 Cloudflare 204（不跑 TLS 握手，一个 RTT 就回），
+     * 不行再试 gstatic / 明文 Google 连通性检查。
+     *
+     * 顺序是量出来的：PC 端同批节点用 google.com 只有一个位数存活，
+     * 换成 Cloudflare 明文 204 后明显改善；这里保持同一口径，
+     * 也让手机端和电脑端测出来的数字能对比。
+     */
     val LATENCY_TARGETS = listOf(
+        Target("cp.cloudflare.com", 80, "/generate_204", false),
         Target("www.gstatic.com", 443, "/generate_204", true),
-        Target("cp.cloudflare.com", 443, "/generate_204", true),
         Target("connectivitycheck.gstatic.com", 80, "/generate_204", false)
     )
 

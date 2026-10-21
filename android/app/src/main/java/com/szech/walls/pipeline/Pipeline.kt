@@ -79,14 +79,31 @@ object Pipeline {
         val ok: Boolean
     )
 
-    private suspend fun fetchOne(src: String, fetcher: Fetcher, listLimit: Int): FetchOutcome {
-        val url = src.substringBefore('#').trim()
-        val isList = src.contains("#type=list")
-        val text = fetcher.get(url) ?: return FetchOutcome(emptyList(), emptyList(), false)
-        val (uris, nodes) = if (isList) {
+    private suspend fun fetchOne(spec: SourceSpec, fetcher: Fetcher, listLimit: Int): FetchOutcome {
+        val text = fetcher.get(spec.url) ?: return FetchOutcome(emptyList(), emptyList(), false)
+        val (rawUris, rawNodes) = if (spec.isList) {
             fetcher.expandListPage(text, listLimit)
         } else {
             fetcher.parseContent(text)
+        }
+        // #ignore=：先按协议过滤掉不要的，省得它们去占名额
+        var uris = rawUris
+        var nodes = rawNodes
+        if (spec.ignore.isNotEmpty()) {
+            nodes = nodes.filter { !spec.ignores(it.type) }
+            uris = uris.filter { u ->
+                val scheme = u.substringBefore(':').lowercase()
+                !spec.ignores(if (scheme == "hy2") "hysteria2" else scheme)
+            }
+        }
+        // #max=：源很大时只取前 N 个（固定顺序，不随机）
+        if (spec.maxNodes > 0) {
+            if (nodes.size + uris.size > spec.maxNodes) {
+                val keepUris = minOf(uris.size, spec.maxNodes)
+                val keepNodes = (spec.maxNodes - keepUris).coerceAtLeast(0)
+                uris = uris.take(keepUris)
+                nodes = nodes.take(keepNodes)
+            }
         }
         return FetchOutcome(uris, nodes, true)
     }
@@ -106,27 +123,32 @@ object Pipeline {
             )
 
         // ---------- 阶段 1：抓取 ----------
-        onLog("== 阶段 1/3：抓取订阅源（共 ${cfg.sources.size} 个）==")
+        val allSpecs = SourceSpec.parseAll(cfg.sources)
+        val specs = allSpecs.filter { !it.needsProxy }
+        if (specs.size < allSpecs.size) {
+            onLog("跳过 ${allSpecs.size - specs.size} 个需要本地代理的源（行首带 ! 的）")
+        }
+        onLog("== 阶段 1/3：抓取订阅源（共 ${specs.size} 个）==")
         val perSource = Collections.synchronizedList(ArrayList<FetchOutcome>())
         val doneCount = AtomicInteger(0)
         val srcSem = Semaphore(8)
         coroutineScope {
-            cfg.sources.distinct().map { src ->
+            specs.map { spec ->
                 async {
                     srcSem.withPermit {
                         if (cfg.isCancelled()) return@withPermit
                         val r = try {
-                            fetchOne(src, fetcher, 16)
+                            fetchOne(spec, fetcher, 16)
                         } catch (e: Exception) {
                             FetchOutcome(emptyList(), emptyList(), false)
                         }
                         perSource.add(r)
                         val d = doneCount.incrementAndGet()
-                        onProgress("抓取中", d, cfg.sources.size)
+                        onProgress("抓取中", d, specs.size)
                         if (r.ok) {
-                            onLog("  [${r.uris.size + r.nodes.size}] ${src.substringBefore('#')}")
+                            onLog("  [${r.uris.size + r.nodes.size}] ${spec.url}")
                         } else {
-                            onLog("  [失败] ${src.substringBefore('#')}")
+                            onLog("  [失败] ${spec.url}")
                         }
                     }
                 }
@@ -322,6 +344,14 @@ object Pipeline {
         "trojan" to 4, "hysteria2" to 3, "tuic" to 2
     )
 
+    /**
+     * 单协议硬上限，跟 PC 端 --max-per-type 对齐。
+     *
+     * 不加这一道，最终名单很容易被 http / socks5 刷满（它们数量多、延迟低），
+     * 结果 sip008 / ss-* / v2ray 这些给非 Clash 客户端的文件几乎是空的。
+     */
+    private val MAX_PER_TYPE = mapOf("http" to 10, "socks5" to 4)
+
     private fun order(alive: List<Node>, cfg: PipelineConfig): List<Node> {
         val list = ArrayList<Node>()
         for (n in alive) {
@@ -334,8 +364,18 @@ object Pipeline {
         val qualified = withSpeed.filter { it.speed >= cfg.minSpeedMbps }
         val pick = if (qualified.isNotEmpty()) qualified else withSpeed
 
+        // 先把单协议超额的那部分压掉，名额让给别的协议
+        val capped = ArrayList<Node>(pick.size)
+        val perType = HashMap<String, Int>()
+        for (n in pick) {
+            val cap = MAX_PER_TYPE[n.type]
+            if (cap != null && (perType[n.type] ?: 0) >= cap) continue
+            perType[n.type] = (perType[n.type] ?: 0) + 1
+            capped.add(n)
+        }
+
         val result = ArrayList<Node>()
-        for (n in pick) result.add(n)
+        for (n in capped) result.add(n)
 
         // 慢一点但延迟低、没测出速度的节点排后面补齐
         val rest = list.filter { it.speed <= 0 }

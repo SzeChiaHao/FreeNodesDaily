@@ -11,6 +11,7 @@ import com.szech.walls.R
 import com.szech.walls.pipeline.Runner
 import com.szech.walls.store.Prefs
 import com.szech.walls.ui.PowerHelp
+import com.szech.walls.ui.SourceDoctor
 import com.szech.walls.ui.WallsCmd
 import com.szech.walls.ui.WallsPageFragment
 import com.google.android.material.R as MR
@@ -74,6 +75,9 @@ class SettingsFragment : WallsPageFragment() {
                 },
                 Item(R.drawable.ic_edit, "编辑订阅源", { "${Prefs.sources.size} 个" }) {
                     WallsCmd.showSourcesDialog(requireContext()) { refreshValues() }
+                },
+                Item(R.drawable.ic_monitoring, "订阅源体检") {
+                    SourceDoctor.run(requireContext(), this) { refreshValues() }
                 }
             ),
             "关于" to listOf(

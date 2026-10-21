@@ -25,45 +25,52 @@ class Fetcher(
 ) {
 
     companion object {
-        /** 一条源最多试几个候选：原链 + 4 个镜像已经够用，再多只是把最坏情况拉长 */
-        const val MAX_CANDIDATES = 5
+        /**
+         * 一条源最多试几个候选。
+         *
+         * 6 个候选 = 「镜像全挂才轮得到直连 raw」。本机实测 raw.githubusercontent.com
+         * 根本连不通（40 秒超时），而 cdn.jsdelivr 0.4 秒就回，所以镜像排前面、raw 放最后：
+         * 平时根本走不到 raw，只有镜像全挂了才会付那一份代价。
+         */
+        const val MAX_CANDIDATES = 6
 
         const val UA =
             "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
 
-        /** 把一个订阅链接展开成候选（原链 + 各种镜像），按可用性排序。 */
+        /**
+         * 把一个订阅链接展开成候选地址，顺序 = 实测速度顺序（快在前）。
+         *
+         * 顺序是量出来的，不是拍的：cdn.jsdelivr 0.4s、gh-proxy 0.45s、
+         * ghproxy.net 1.5s、fastly.jsdelivr 1.0s、ghfast.top 1.4s、raw 40s 超时。
+         */
         fun mirrors(url: String, mirrorFirst: Boolean = true): List<String> {
             val out = LinkedHashSet<String>()
             val m = Regex("""^https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)$""").find(url)
-            val proxied = listOf(
-                "https://gh-proxy.com/$url",
-                "https://ghproxy.net/$url",
-                "https://ghfast.top/$url"
-            )
             if (m != null) {
                 val user = m.groupValues[1]
                 val repo = m.groupValues[2]
                 val branch = m.groupValues[3]
                 val path = m.groupValues[4]
-                val jsd = listOf(
-                    "https://fastly.jsdelivr.net/gh/$user/$repo@$branch/$path",
-                    "https://cdn.jsdelivr.net/gh/$user/$repo@$branch/$path",
-                    "https://gf.zukizuki.org/gh/$user/$repo@$branch/$path",
-                    "https://raw.gitmirror.com/$user/$repo/$branch/$path"
+                val jsd = "gh/$user/$repo@$branch/$path"
+                val fast = listOf(
+                    "https://cdn.jsdelivr.net/$jsd",
+                    "https://gh-proxy.com/$url",
+                    "https://ghproxy.net/$url",
+                    "https://fastly.jsdelivr.net/$jsd",
+                    "https://ghfast.top/$url"
                 )
                 if (mirrorFirst) {
-                    out.addAll(jsd)
-                    out.addAll(proxied)
+                    out.addAll(fast)
                     out.add(url)
                 } else {
                     out.add(url)
-                    out.addAll(jsd)
-                    out.addAll(proxied)
+                    out.addAll(fast)
                 }
             } else {
                 out.add(url)
                 if (url.contains("github.com/") && !url.contains("raw.githubusercontent.com")) {
-                    out.addAll(proxied)
+                    out.add("https://gh-proxy.com/$url")
+                    out.add("https://ghproxy.net/$url")
                 }
             }
             return out.toList()
@@ -121,23 +128,33 @@ class Fetcher(
     }
 
     /** 带镜像兜底抓取。 */
-    fun get(url: String): String? = getWithTimeout(url, timeoutMs)
+    fun get(url: String): String? = getWithMirror(url).first
+
+    /** 带镜像兜底、带超时抓取。 */
+    fun getWithTimeout(url: String, ms: Int): String? = getWithMirror(url, ms).first
 
     /**
-     * 带镜像兜底、带超时抓取。
-     *
-     * 候选里只有「原链」用完整超时，镜像用短超时；候选总数也封顶。
-     * 以前是一条不通的源 = 8 个候选 × 12 秒 ≈ 96 秒，8 路并发全被几条死源拖住，
-     * 表现就是阶段 1 卡很久、日志一行不动。
+     * 同 getWithTimeout，但把「最后是走哪个镜像成功的」也告诉你。
+     * 源体检（SourceDoctor）靠它报出每个源实际用的镜像。
      */
-    fun getWithTimeout(url: String, ms: Int): String? {
+    fun getWithMirror(url: String, ms: Int = timeoutMs): Pair<String?, String?> {
         val candidates = mirrors(url, mirrorFirst).take(MAX_CANDIDATES)
         for (cand in candidates) {
             val t = if (cand == url) ms else minOf(mirrorTimeoutMs, ms)
             val text = getOnce(cand, t)
-            if (!text.isNullOrBlank()) return text
+            if (!text.isNullOrBlank()) return text to mirrorName(cand, url)
         }
-        return null
+        return null to null
+    }
+
+    private fun mirrorName(cand: String, original: String): String = when {
+        cand == original -> "raw"
+        cand.startsWith("https://cdn.jsdelivr.net") -> "cdn.jsdelivr"
+        cand.startsWith("https://fastly.jsdelivr.net") -> "fastly.jsdelivr"
+        cand.startsWith("https://gh-proxy.com") -> "gh-proxy"
+        cand.startsWith("https://ghproxy.net") -> "ghproxy.net"
+        cand.startsWith("https://ghfast.top") -> "ghfast.top"
+        else -> "?"
     }
 
     // ------------------------------------------------------------ 内容解析

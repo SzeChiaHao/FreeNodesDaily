@@ -217,14 +217,33 @@ object Formats {
         return root.toString(2)
     }
 
+    /** 挑一个不与节点同名的策略组名字（mihomo 里 proxies 和 proxy-groups 不能重名） */
+    private fun groupName(base: String, taken: Set<String>): String {
+        if (base !in taken) return base
+        var i = 2
+        while ("$base $i" in taken) i++
+        return "$base $i"
+    }
+
     fun clashYaml(nodes: List<Node>, groupNote: String = ""): String {
         val proxies = nodes.map { clean(it.map) }
         val names = nodes.map { (it.map["name"] as? String) ?: it.name }
+        // 免费节点名字是别人起的，什么都可能有；万一就叫「🚀 自动选择」，
+        // 直接重名会让 mihomo 拒绝加载整份配置
+        val taken = names.toSet()
+        val autoGroup = groupName("🚀 自动选择", taken)
+        val manualGroup = groupName("🐟 手动选择" + if (groupNote.isEmpty()) "" else groupNote, taken)
+
         val root = LinkedHashMap<String, Any?>()
+        // 这三行是让整份文件自己就能当一份完整配置用：
+        // 缺了端口/模式的 YAML 有些客户端能容忍，有些直接报错。
+        root["mixed-port"] = 7890
+        root["mode"] = "rule"
+        root["log-level"] = "info"
         root["proxies"] = proxies
         root["proxy-groups"] = listOf(
             linkedMapOf<String, Any?>(
-                "name" to "🚀 自动选择",
+                "name" to autoGroup,
                 "type" to "url-test",
                 "url" to "http://www.gstatic.com/generate_204",
                 "interval" to 300,
@@ -232,12 +251,12 @@ object Formats {
                 "proxies" to names
             ),
             linkedMapOf<String, Any?>(
-                "name" to "🐟 手动选择" + if (groupNote.isEmpty()) "" else groupNote,
+                "name" to manualGroup,
                 "type" to "select",
                 "proxies" to names
             )
         )
-        root["rules"] = listOf("MATCH,🚀 自动选择")
+        root["rules"] = listOf("MATCH,$autoGroup")
         return yaml.dump(root)
     }
 
@@ -251,7 +270,10 @@ object Formats {
             sb.append(i + 1).append(". ").append(n.name)
                 .append("  |  ").append(n.type)
                 .append("  |  延迟 ").append(d)
-                .append("  |  速度 ").append(sp).append("\n")
+                .append("  |  速度 ").append(sp)
+            // 没测通的原因也写进来：导出说明里一直承诺「能看排名和没测通的原因」
+            if (n.note.isNotEmpty()) sb.append("  |  ").append(n.note)
+            sb.append("\n")
         }
         return sb.toString()
     }

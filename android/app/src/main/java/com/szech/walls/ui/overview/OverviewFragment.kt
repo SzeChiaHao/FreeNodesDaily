@@ -41,6 +41,11 @@ class OverviewFragment : WallsPageFragment() {
     private var logScroll: ScrollView? = null
     private var lastFileView: TextView? = null
 
+    /** 日志区最后一次被手指碰的时间；3 秒内不自动跟随 */
+    private var logTouchedAt = 0L
+    /** 已经上屏的日志文本，一样就不重复 setText（减少 layout 与选区跳动） */
+    private var logRendered: String? = null
+
     private val runListener = RunController.Listener { renderRun() }
     private val logListener: (String) -> Unit = { view?.post { renderLog() } }
 
@@ -225,7 +230,13 @@ class OverviewFragment : WallsPageFragment() {
         val s3 = ui.section(c3, bottomDp = 12)
 
         // 日志不再整段摊开：固定高度、内部可滚，像网页里的代码块
-        logView = ui.label("", R.style.TextAppearance_Walls_Mono).apply { setTextIsSelectable(true) }
+        logView = ui.label("", R.style.TextAppearance_Walls_Mono).apply {
+            setTextIsSelectable(true)
+            // 不抢焦点：selectable 的 TextView 拿到焦点后，文本一更新就会
+            // 把「光标/选区」带回视野，表现成日志自己上下跳。
+            isFocusable = false
+            isFocusableInTouchMode = false
+        }
         logScroll = ScrollView(requireContext()).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, ui.dp(220)
@@ -233,18 +244,28 @@ class OverviewFragment : WallsPageFragment() {
             isFillViewport = false
             isVerticalScrollBarEnabled = true
             scrollBarStyle = View.SCROLLBARS_INSIDE_INSET
+            isFocusable = false
+            isFocusableInTouchMode = false
+            descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
             addView(logView)
             // 这一块是「页面里再套一个滚动区」：手指落在日志上时，必须让父级 ScrollView
             // 别来抢手势，否则整页跟着滚、日志自己一动不动。
+            // 另外记一笔「刚被摸过」，自动跟随在几秒内都让路，
+            // 否则用户正拖着看历史，日志一更新就被拽走，看起来就是自己在抖。
             setOnTouchListener { v, e ->
                 when (e.actionMasked) {
-                    android.view.MotionEvent.ACTION_DOWN,
-                    android.view.MotionEvent.ACTION_MOVE -> {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        logTouchedAt = System.currentTimeMillis()
                         v.parent?.requestDisallowInterceptTouchEvent(true)
+                        false
+                    }
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        logTouchedAt = System.currentTimeMillis()
                         false
                     }
                     android.view.MotionEvent.ACTION_UP,
                     android.view.MotionEvent.ACTION_CANCEL -> {
+                        logTouchedAt = System.currentTimeMillis()
                         v.parent?.requestDisallowInterceptTouchEvent(false)
                         false
                     }
@@ -452,12 +473,27 @@ class OverviewFragment : WallsPageFragment() {
     private fun renderLog() {
         val v = logView ?: return
         val sv = logScroll ?: return
-        // 只有本来就在底部时才自动跟随（tail -f 的行为）。
-        // 否则用户往上翻看历史时会被每半秒拽回末尾，等于没得看。
-        val atBottom = v.height <= sv.height || sv.scrollY + sv.height >= v.height - dp8
-        val lines = Log.snapshot()
-        v.text = lines.takeLast(200).joinToString("\n").ifEmpty { "（暂无日志）" }
-        if (atBottom) sv.post { sv.fullScroll(View.FOCUS_DOWN) }
+
+        var atBottom = v.height <= sv.height || sv.scrollY + sv.height >= v.height - dp8
+        val text = Log.snapshot().takeLast(200).joinToString("\n").ifEmpty { "（暂无日志）" }
+
+        if (text != logRendered) {
+            logRendered = text
+            v.text = text
+        }
+
+        // 自动跟随的条件（全部满足才动）：
+        //   1. 本来就在底部；
+        //   2. 最近 3 秒内用户没碰过日志区（手指还按着就更不抢）；
+        //   3. 确实还有可滚的余量。
+        // 以前这三点一条都没卡，日志一更新就 fullScroll，用户正在拖的时候
+        // 两边打架，看上去就是日志自己在上下抖。
+        if (System.currentTimeMillis() - logTouchedAt < 3000) atBottom = false
+        if (!atBottom) return
+        sv.post {
+            val max = (v.height - sv.height).coerceAtLeast(0)
+            if (sv.scrollY < max - dp8) sv.scrollTo(0, max)
+        }
     }
 
     private val dp8: Int by lazy { (8 * resources.displayMetrics.density).toInt() }
@@ -473,5 +509,7 @@ class OverviewFragment : WallsPageFragment() {
         logView = null
         logScroll = null
         lastFileView = null
+        logRendered = null
+        logTouchedAt = 0L
     }
 }

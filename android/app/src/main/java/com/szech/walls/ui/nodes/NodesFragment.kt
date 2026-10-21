@@ -148,6 +148,12 @@ class NodesFragment : WallsPageFragment() {
 
     private fun renderNodes() {
         val box = host ?: return
+        // 重建列表会让子视图先被清空、高度变 0，页面的 ScrollView 就被夹回顶部。
+        // 搜索每敲一个字也会走到这里，于是“搜一个词就被拉回顶部”很难用。
+        // 先把当前滚动位置记下来，重建完再放回去。
+        val sv = page.root
+        val keepY = sv.scrollY
+        val keepBottom = sv.scrollY + sv.height >= sv.getChildAt(0).height - 4
         box.removeAllViews()
         val list = visibleNodes()
 
@@ -162,11 +168,22 @@ class NodesFragment : WallsPageFragment() {
                 ui.label(msg, R.style.TextAppearance_Walls_Caption)
                     .apply { setPadding(ui.dp(20), ui.dp(18), ui.dp(20), ui.dp(20)) }
             )
+            restoreScroll(sv, keepY, keepBottom)
             return
         }
         list.forEachIndexed { i, n ->
             if (i > 0) ui.divider(box)
             box.addView(nodeRow(i, n))
+        }
+        restoreScroll(sv, keepY, keepBottom)
+    }
+
+    /** 重建列表后把滚动位置放回去（原来在底部就继续跟到底部） */
+    private fun restoreScroll(sv: android.widget.ScrollView, y: Int, toBottom: Boolean) {
+        sv.post {
+            val content = sv.getChildAt(0)?.height ?: 0
+            val target = if (toBottom) (content - sv.height).coerceAtLeast(0) else y
+            sv.scrollTo(0, target.coerceIn(0, (content - sv.height).coerceAtLeast(0)))
         }
     }
 

@@ -100,13 +100,13 @@ object WallsCmd {
     )
 
     val FORMATS: List<ExportFormat> = listOf(
-        ExportFormat("clash", "clash", "yaml", "text/yaml", "Clash", "Clash Verge、mihomo、FlClash 都吃这个"),
-        ExportFormat("v2ray", "v2ray", "txt", "text/plain", "v2rayNG / v2rayN", "通用 base64 订阅，NekoBox、Shadowrocket 也认"),
-        ExportFormat("sip008", "sip008", "json", "application/json", "shadowsocks-android", "官方 JSON 订阅格式"),
-        ExportFormat("ssb64", "ss-base64", "txt", "text/plain", "Shadowsocks 系（base64）", "整份列表 base64 编码，填进「订阅」栏"),
-        ExportFormat("ssplain", "ss-plain", "txt", "text/plain", "Shadowsocks 系（明文）", "一行一个 ss:// 链接，复制就能加"),
-        ExportFormat("all", "all-links", "txt", "text/plain", "手动挑节点", "所有协议的分享链接，明文"),
-        ExportFormat("report", "report", "md", "text/markdown", "测速报告", "Markdown 表格，看排名和没测通的原因")
+        ExportFormat("clash", "clash", "yaml", "text/yaml", "Clash", "Clash Verge、mihomo 通用"),
+        ExportFormat("v2ray", "v2ray", "txt", "text/plain", "v2rayNG / v2rayN", "base64 订阅，NekoBox 也认"),
+        ExportFormat("sip008", "sip008", "json", "application/json", "shadowsocks-android", "官方 JSON 订阅"),
+        ExportFormat("ssb64", "ss-base64", "txt", "text/plain", "Shadowsocks 系（base64）", "整份列表 base64"),
+        ExportFormat("ssplain", "ss-plain", "txt", "text/plain", "Shadowsocks 系（明文）", "一行一个 ss:// 链接"),
+        ExportFormat("all", "all-links", "txt", "text/plain", "手动挑节点", "所有协议的分享链接"),
+        ExportFormat("report", "report", "md", "text/markdown", "测速报告", "Markdown 表格")
     )
 
     /** 一次生成共用一个时间戳，七个文件属于同一批，好认也好清 */

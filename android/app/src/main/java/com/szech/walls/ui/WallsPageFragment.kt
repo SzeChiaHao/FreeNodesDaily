@@ -33,6 +33,10 @@ abstract class WallsPageFragment : Fragment() {
         ui = WallsUi(requireContext())
         _page = ui.page()
         build()
+        // 手机宽屏以外都有底部导航栏，内容滚到底时会被它盖住一截，这里补足留白。
+        if (resources.configuration.smallestScreenWidthDp < 600) {
+            _page.col.setPadding(ui.dp(16), 0, ui.dp(16), ui.dp(96))
+        }
         return _page.root
     }
 

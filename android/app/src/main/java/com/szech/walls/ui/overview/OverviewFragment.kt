@@ -332,19 +332,60 @@ class OverviewFragment : WallsPageFragment() {
         lastFileView?.text = fileStamp()
         val running = RunController.running
         promptView?.visibility = if (running) View.GONE else View.VISIBLE
-        overallLabel?.visibility = if (running) View.VISIBLE else View.GONE
-        overallBar?.visibility = if (running) View.VISIBLE else View.GONE
-        timeLabel?.visibility = if (running) View.VISIBLE else View.GONE
+
+        // 没在跑的时候，如果上一轮留下过快照，就把那四段原样摆出来（打勾 + 计数），
+        // 而不是全部抹成「等待」—— 刚跑完那一秒用户最想看的就是这些数字。
+        val snap = if (running) emptyList() else RunController.lastPhases
+        val showOverall = running || snap.isNotEmpty()
+        overallLabel?.visibility = if (showOverall) View.VISIBLE else View.GONE
+        overallBar?.visibility = if (showOverall) View.VISIBLE else View.GONE
+        timeLabel?.visibility = if (showOverall) View.VISIBLE else View.GONE
+
+        val success = ui.clr(R.color.md_success)
+        val onVariant = ui.attr(MR.attr.colorOnSurfaceVariant)
 
         val cur = RunController.stageIndex
         if (!running) {
-            for (row in phaseRows) {
-                row.badge.text = (phaseRows.indexOf(row) + 1).toString()
-                row.state.text = "等待"
-                row.state.setTextColor(ui.attr(MR.attr.colorOnSurfaceVariant))
-                row.bar.visibility = View.GONE
+            if (snap.isEmpty()) {
+                for (row in phaseRows) {
+                    row.badge.text = (phaseRows.indexOf(row) + 1).toString()
+                    row.state.text = "等待"
+                    row.state.setTextColor(onVariant)
+                    row.bar.visibility = View.GONE
+                }
+                overallBar?.setProgressCompat(0, false)
+            } else {
+                overallLabel?.text = "上次运行：完成"
+                timeLabel?.text = "用时 " + fmtDur(RunController.lastRunElapsedMs)
+                overallBar?.setProgressCompat(100, false)
+                phaseRows.forEachIndexed { i, row ->
+                    val p = snap.getOrNull(i)
+                    when {
+                        p == null -> {
+                            row.badge.text = "${i + 1}"
+                            row.badge.setTextColor(onVariant)
+                            row.state.text = "等待"
+                            row.state.setTextColor(onVariant)
+                            row.bar.visibility = View.GONE
+                        }
+                        p.skipped -> {
+                            row.badge.text = "—"
+                            row.badge.setTextColor(onVariant)
+                            row.state.text = "跳过"
+                            row.state.setTextColor(onVariant)
+                            row.bar.visibility = View.GONE
+                        }
+                        else -> {
+                            row.badge.text = "✓"
+                            row.badge.setTextColor(success)
+                            row.state.text = if (p.total > 0) "${p.done}/${p.total}" else "完成"
+                            row.state.setTextColor(success)
+                            row.bar.visibility = View.VISIBLE
+                            row.bar.setProgressCompat(100, false)
+                        }
+                    }
+                }
             }
-            overallBar?.setProgressCompat(0, false)
             return
         }
 
@@ -357,8 +398,6 @@ class OverviewFragment : WallsPageFragment() {
         overallBar?.setProgressCompat(pct, true)
 
         val primary = ui.attr(MR.attr.colorPrimary)
-        val onVariant = ui.attr(MR.attr.colorOnSurfaceVariant)
-        val success = ui.clr(R.color.md_success)
 
         RunController.PHASE_TITLES.forEachIndexed { i, name ->
             val row = phaseRows.getOrNull(i) ?: return@forEachIndexed
@@ -411,11 +450,17 @@ class OverviewFragment : WallsPageFragment() {
     }
 
     private fun renderLog() {
+        val v = logView ?: return
+        val sv = logScroll ?: return
+        // 只有本来就在底部时才自动跟随（tail -f 的行为）。
+        // 否则用户往上翻看历史时会被每半秒拽回末尾，等于没得看。
+        val atBottom = v.height <= sv.height || sv.scrollY + sv.height >= v.height - dp8
         val lines = Log.snapshot()
-        logView?.text = lines.takeLast(200).joinToString("\n").ifEmpty { "（暂无日志）" }
-        // 新日志进来时滚到底，像 tail -f
-        logScroll?.post { logScroll?.fullScroll(View.FOCUS_DOWN) }
+        v.text = lines.takeLast(200).joinToString("\n").ifEmpty { "（暂无日志）" }
+        if (atBottom) sv.post { sv.fullScroll(View.FOCUS_DOWN) }
     }
+
+    private val dp8: Int by lazy { (8 * resources.displayMetrics.density).toInt() }
 
     override fun onDestroyView() {
         super.onDestroyView()

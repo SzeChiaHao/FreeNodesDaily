@@ -14,6 +14,16 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- App 内自动更新：下载新版本安装包后调系统安装器覆盖安装 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 扫码导入：zxing 那个库自己的清单里也声明了 CAMERA，这里显式写一遍，
+         免得哪天换掉或者改动了那个库，扫码会静默变成「没有相机权限」而代码层面看不出原因 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 相机不是必需：没摄像头的设备照样能抓取、测速、导出，只是扫不了码 -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />

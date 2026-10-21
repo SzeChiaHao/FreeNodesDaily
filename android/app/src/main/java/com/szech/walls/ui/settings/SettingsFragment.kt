@@ -2,7 +2,6 @@ package com.szech.walls.ui.settings
 
 import android.text.InputType
 import android.view.ContextThemeWrapper
-import android.view.Gravity
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -11,88 +10,84 @@ import com.google.android.material.textfield.TextInputLayout
 import com.szech.walls.R
 import com.szech.walls.pipeline.Runner
 import com.szech.walls.store.Prefs
+import com.szech.walls.ui.PowerHelp
 import com.szech.walls.ui.WallsCmd
 import com.szech.walls.ui.WallsPageFragment
 import com.google.android.material.R as MR
 
-/** 设置：分四组，别再排成一条长龙 */
+/**
+ * 设置：分四组，别再排成一条长龙。
+ *
+ * 每一项自己带着「怎么读、怎么写、右侧显示什么」，不再靠中文标题当字典键去反查
+ * （以前改一个字就静默失效：值显示空白、开关永远从 false 开始）。
+ */
 class SettingsFragment : WallsPageFragment() {
 
-    private data class Item(
+    private class Item(
         val icon: Int,
         val title: String,
-        val showValue: Boolean = true,
-        val action: (() -> Unit)? = null
+        /** 右侧取值那格；返回 null 表示这一项不显示取值 */
+        val value: (() -> String)? = null,
+        val action: () -> Unit
     )
 
-    /** 标题 → 右侧取值那格，改完设置直接改这几个 TextView，不用遍历视图树 */
-    private val valueViews = LinkedHashMap<String, TextView>()
+    /** 每一项 → 它右侧的取值 TextView，改完设置直接改这几个，不用遍历视图树 */
+    private val valueViews = LinkedHashMap<Item, TextView>()
 
     override fun build() {
         val col = page.col
-        ui.header(col, R.drawable.ic_tune, "设置", "共 16 项")
         valueViews.clear()
 
         val groups = listOf(
             "数量与速度" to listOf(
-                Item(R.drawable.ic_dns, "候选节点上限") {
-                    number("进入测速的候选节点上限", Prefs.maxNodes, 20, 3000) { Prefs.maxNodes = it }
-                },
-                Item(R.drawable.ic_bookmark, "保留节点数量") {
-                    number("最终保留多少个节点", Prefs.keepTop, 5, 500) { Prefs.keepTop = it }
-                },
-                Item(R.drawable.ic_speed, "测速节点数量") {
-                    number("做下载测速的节点个数", Prefs.speedTop, 0, 300) { Prefs.speedTop = it }
-                },
-                Item(R.drawable.ic_data_usage, "每个节点测速流量(KB)") {
-                    number(
-                        "每个节点下载多少流量（KB）。40 个节点 × 512KB ≈ 20MB 流量",
-                        Prefs.speedBytesKb, 64, 4096
-                    ) { Prefs.speedBytesKb = it }
-                },
-                Item(R.drawable.ic_filter_alt, "最低合格速度(0.1MB/s)") {
-                    number("低于该速度的节点被过滤（单位 0.1 MB/s）", Prefs.minSpeedTenths, 0, 100) {
-                        Prefs.minSpeedTenths = it
-                    }
-                }
+                numberItem(R.drawable.ic_dns, "候选节点上限", 20, 3000,
+                    { Prefs.maxNodes }) { Prefs.maxNodes = it },
+                numberItem(R.drawable.ic_bookmark, "保留节点数量", 5, 500,
+                    { Prefs.keepTop }) { Prefs.keepTop = it },
+                numberItem(R.drawable.ic_speed, "测速节点数量", 0, 300,
+                    { Prefs.speedTop }) { Prefs.speedTop = it },
+                numberItem(R.drawable.ic_data_usage, "每个节点测速流量(KB)", 64, 4096,
+                    { Prefs.speedBytesKb }, value = { "$it KB" }) { Prefs.speedBytesKb = it },
+                numberItem(R.drawable.ic_filter_alt, "最低合格速度(0.1MB/s)", 0, 100,
+                    { Prefs.minSpeedTenths }, value = { "${it / 10.0} MB/s" }) { Prefs.minSpeedTenths = it }
             ),
             "过滤与命名" to listOf(
-                Item(R.drawable.ic_verified, "只保留可实测协议的节点") {
-                    bool("只保留可实测协议的节点") { Prefs.measurableOnly = it }
-                },
-                Item(R.drawable.ic_label, "节点名加上速度前缀") {
-                    bool("节点名加上速度前缀") { Prefs.labelSpeed = it }
-                }
+                boolItem(R.drawable.ic_verified, "只保留可实测协议的节点",
+                    { Prefs.measurableOnly }) { Prefs.measurableOnly = it },
+                boolItem(R.drawable.ic_label, "节点名加上速度前缀",
+                    { Prefs.labelSpeed }) { Prefs.labelSpeed = it }
             ),
             "自动化" to listOf(
-                Item(R.drawable.ic_download, "抓取后自动保存") {
-                    bool("抓取后自动保存") { Prefs.autoSave = it }
+                boolItem(R.drawable.ic_download, "抓取后自动保存",
+                    { Prefs.autoSave }) { Prefs.autoSave = it },
+                boolItem(R.drawable.ic_delete, "生成后删除旧文件",
+                    { Prefs.cleanOldExports }) { Prefs.cleanOldExports = it },
+                boolItem(R.drawable.ic_cloud_sync, "抓取优先走镜像",
+                    { Prefs.mirrorFirst }) { Prefs.mirrorFirst = it },
+                Item(R.drawable.ic_schedule, "后台运行权限", { PowerHelp.statusText(requireContext()) }) {
+                    PowerHelp.ask(requireContext(), force = true) { refreshValues() }
                 },
-                Item(R.drawable.ic_delete, "生成后删除旧文件") {
-                    bool("生成后删除旧文件") { Prefs.cleanOldExports = it }
+                boolItem(R.drawable.ic_schedule, "每天自动更新",
+                    { Prefs.autoDaily }) {
+                    Prefs.autoDaily = it
+                    Runner.schedule(requireContext(), it)
                 },
-                Item(R.drawable.ic_schedule, "后台运行权限") {
-                    com.szech.walls.ui.PowerHelp.ask(requireContext(), force = true) { refreshValues() }
-                },
-                Item(R.drawable.ic_schedule, "每天自动更新") {
-                    bool("每天自动更新") {
-                        Prefs.autoDaily = it
-                        Runner.schedule(requireContext(), it)
-                    }
-                },
-                Item(R.drawable.ic_edit, "编辑订阅源") { sources() }
+                Item(R.drawable.ic_edit, "编辑订阅源", { "${Prefs.sources.size} 个" }) {
+                    WallsCmd.showSourcesDialog(requireContext()) { refreshValues() }
+                }
             ),
             "关于" to listOf(
-                Item(R.drawable.ic_description, "导出诊断日志", showValue = false) {
+                Item(R.drawable.ic_description, "导出诊断日志") {
                     WallsCmd.exportDiagnostics(requireContext())
                 },
-                Item(R.drawable.ic_system_update, "检查更新") {
+                Item(R.drawable.ic_system_update, "检查更新",
+                    { "v" + WallsCmd.currentVersion(requireContext()).first }) {
                     WallsCmd.checkUpdate(requireContext(), this, manual = true)
                 },
-                Item(R.drawable.ic_link, "GitHub 仓库", showValue = false) {
+                Item(R.drawable.ic_link, "GitHub 仓库") {
                     WallsCmd.openUrl(requireContext(), WallsCmd.GITHUB_URL)
                 },
-                Item(R.drawable.ic_description, "开源许可", showValue = false) {
+                Item(R.drawable.ic_description, "开源许可") {
                     MaterialAlertDialogBuilder(requireContext())
                         .setTitle("开源许可")
                         .setMessage(
@@ -105,23 +100,29 @@ class SettingsFragment : WallsPageFragment() {
             )
         )
 
+        val total = groups.sumOf { it.second.size }
+        ui.header(col, R.drawable.ic_tune, "设置", "共 $total 项")
+
         for ((groupTitle, items) in groups) {
             ui.groupTitle(col, groupTitle)
             val card = ui.card(col, 0, "")
             items.forEachIndexed { i, item ->
                 if (i > 0) ui.divider(card)
-                val value = if (item.showValue) settingValue(item.title) else ""
                 var valueView: TextView? = null
-                val row = ui.tile(
-                    icon = item.icon,
-                    title = item.title,
-                    value = value,
-                    chevron = true,
-                    valueSink = { valueView = it },
-                    onClick = { item.action?.invoke(); refreshValues() }
+                card.addView(
+                    ui.tile(
+                        icon = item.icon,
+                        title = item.title,
+                        value = item.value?.invoke() ?: "",
+                        chevron = true,
+                        valueSink = { valueView = it },
+                        onClick = {
+                            item.action()
+                            refreshValues()
+                        }
+                    )
                 )
-                card.addView(row)
-                if (item.showValue) valueView?.let { valueViews[item.title] = it }
+                if (item.value != null) valueView?.let { valueViews[item] = it }
             }
         }
         refreshValues()
@@ -132,43 +133,23 @@ class SettingsFragment : WallsPageFragment() {
     }
 
     private fun refreshValues() {
-        for ((title, view) in valueViews) {
-            val v = settingValue(title)
+        for ((item, view) in valueViews) {
+            val v = item.value?.invoke() ?: continue
             if (v.isNotEmpty()) view.text = v
         }
     }
 
-    private fun settingValue(label: String): String = when (label) {
-        "候选节点上限" -> Prefs.maxNodes.toString()
-        "保留节点数量" -> Prefs.keepTop.toString()
-        "测速节点数量" -> Prefs.speedTop.toString()
-        "每个节点测速流量(KB)" -> "${Prefs.speedBytesKb} KB"
-        "最低合格速度(0.1MB/s)" -> "${Prefs.minSpeedTenths / 10.0} MB/s"
-        "只保留可实测协议的节点" -> if (Prefs.measurableOnly) "开" else "关"
-        "节点名加上速度前缀" -> if (Prefs.labelSpeed) "开" else "关"
-        "抓取后自动保存" -> if (Prefs.autoSave) "开" else "关"
-        "生成后删除旧文件" -> if (Prefs.cleanOldExports) "开" else "关"
-        "后台运行权限" -> com.szech.walls.ui.PowerHelp.statusText(requireContext())
-        "每天自动更新" -> if (Prefs.autoDaily) "开" else "关"
-        "编辑订阅源" -> "${Prefs.sources.size} 个"
-        "检查更新" -> "v" + WallsCmd.currentVersion(requireContext()).first
-        else -> ""
-    }
+    // ------------------------------------------------------------ 两种弹窗
 
-    // ------------------------------------------------------------ 弹窗
-
-    private fun bool(label: String, set: (Boolean) -> Unit) {
-        val cur = when (label) {
-            "只保留可实测协议的节点" -> Prefs.measurableOnly
-            "节点名加上速度前缀" -> Prefs.labelSpeed
-            "抓取后自动保存" -> Prefs.autoSave
-            "生成后删除旧文件" -> Prefs.cleanOldExports
-            "每天自动更新" -> Prefs.autoDaily
-            else -> false
-        }
+    private fun boolItem(
+        icon: Int,
+        title: String,
+        get: () -> Boolean,
+        set: (Boolean) -> Unit
+    ): Item = Item(icon, title, { if (get()) "开" else "关" }) {
         MaterialAlertDialogBuilder(requireContext())
-            .setTitle(label)
-            .setSingleChoiceItems(arrayOf("开", "关"), if (cur) 0 else 1) { d, which ->
+            .setTitle(title)
+            .setSingleChoiceItems(arrayOf("开", "关"), if (get()) 0 else 1) { d, which ->
                 set(which == 0)
                 d.dismiss()
                 refreshValues()
@@ -176,7 +157,16 @@ class SettingsFragment : WallsPageFragment() {
             .show()
     }
 
-    private fun number(label: String, cur: Int, min: Int, max: Int, set: (Int) -> Unit) {
+    private fun numberItem(
+        icon: Int,
+        title: String,
+        min: Int,
+        max: Int,
+        get: () -> Int,
+        value: (Int) -> String = { it.toString() },
+        set: (Int) -> Unit
+    ): Item = Item(icon, title, { value(get()) }) {
+        val cur = get()
         val input = TextInputEditText(requireContext()).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
             setText(cur.toString())
@@ -193,7 +183,7 @@ class SettingsFragment : WallsPageFragment() {
             addView(wrap)
         }
         MaterialAlertDialogBuilder(requireContext())
-            .setTitle(label)
+            .setTitle(title)
             .setView(box)
             .setPositiveButton("确定") { _, _ ->
                 val v = input.text.toString().toIntOrNull()
@@ -206,9 +196,5 @@ class SettingsFragment : WallsPageFragment() {
             }
             .setNegativeButton("取消", null)
             .show()
-    }
-
-    private fun sources() {
-        WallsCmd.showSourcesDialog(requireContext()) { refreshValues() }
     }
 }

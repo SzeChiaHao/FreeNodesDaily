@@ -2,7 +2,6 @@ package com.szech.walls.ui
 
 import android.content.Context
 import android.content.res.ColorStateList
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
 import android.view.ContextThemeWrapper
@@ -359,6 +358,4 @@ class WallsUi(private val ctx: Context) {
             setTextColor(on)
             layoutParams = LinearLayout.LayoutParams(dp(boxDp), dp(boxDp))
         }
-
-    fun bold(tv: TextView): TextView = tv.apply { setTypeface(typeface, Typeface.BOLD) }
 }
